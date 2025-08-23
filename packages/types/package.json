@@ -1,0 +1,24 @@
+{
+  "name": "@swflcoders/types",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/",
+    "bindings/"
+  ],
+  "scripts": {
+    "build": "cargo build && npm run generate-ts && npm run build-ts",
+    "generate-ts": "cargo test --release && npm run copy-bindings",
+    "copy-bindings": "mkdir -p bindings && find target -name '*.ts' -path '*/debug/build/*' -exec cp {} bindings/ \\;",
+    "build-ts": "tsc",
+    "dev": "npm run build",
+    "test": "cargo test",
+    "clean": "cargo clean && rm -rf dist/ bindings/ node_modules/",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

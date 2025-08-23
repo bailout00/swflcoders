@@ -1,0 +1,30 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.6", features = ["json", "ws"] }
+tokio = { version = "1.0", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+aws-config = "1.0"
+aws-sdk-cognitoidentityprovider = "1.0"
+aws-sdk-dynamodb = "1.0"
+aws-sdk-apigatewaymanagement = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde", "fast-rng"] }
+aws_lambda_events = "0.15"
+lambda_http = "0.16"
+lambda_runtime = "0.14"
+hyper = { version = "1.0", features = ["full"] }
+http = "1.0"
+types = { path = "../types" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.4", features = ["util"] }

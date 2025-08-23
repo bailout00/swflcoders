@@ -1,4 +1,27 @@
 {
   "name": "swflcoders",
-  "packageManager": "yarn@4.5.1"
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "pnpm run build:types && pnpm run --filter='!types' build",
+    "build:types": "pnpm run --filter=types build",
+    "dev": "pnpm run --parallel dev",
+    "test": "pnpm run --recursive test",
+    "test:e2e": "pnpm run --filter=e2e test",
+    "deploy:beta": "pnpm run --filter=cdk deploy:beta",
+    "deploy:gamma": "pnpm run --filter=cdk deploy:gamma",
+    "deploy:prod": "pnpm run --filter=cdk deploy:prod",
+    "lint": "pnpm run --recursive lint",
+    "clean": "pnpm run --recursive clean && rm -rf node_modules/ pnpm-lock.yaml",
+    "type-check": "pnpm run --recursive type-check"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
 }
