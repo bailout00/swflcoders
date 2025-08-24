@@ -31,11 +31,12 @@ pub struct Room {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Message {
-    pub id: String,
-    pub room_id: String,
-    pub username: String,
-    pub message_text: String,
-    pub created_at: DateTime<Utc>,
+    pub id: String,             // ULID - unique message identifier
+    #[serde(rename = "userId")]
+    pub user_id: String,        // ULID - sender's unique identifier
+    pub username: String,       // Display name of the sender
+    pub text: String,          // Message content
+    pub timestamp: DateTime<Utc>, // When the message was sent
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -48,6 +49,7 @@ pub struct ChatMessage {
     pub created_at: DateTime<Utc>,
 }
 
+// Legacy room-based API types (keep for backward compatibility)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SendMessageRequest {
@@ -60,7 +62,33 @@ pub struct SendMessageRequest {
 #[ts(export)]
 pub struct GetMessagesResponse {
     pub room_id: String,
-    pub messages: Vec<Message>,
+    pub messages: Vec<ChatMessage>,
+}
+
+// New frontend-expected API types
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct SendMessageApiRequest {
+    #[serde(rename = "userId")]
+    pub user_id: String,        // ULID - sender's unique identifier
+    pub username: String,       // Display name of the sender  
+    pub text: String,          // Message content
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export)]
+pub struct ApiResponse<T> {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<Message>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 // Export types for easy access - removed redundant pub use since types are already defined in this module
@@ -84,20 +112,20 @@ mod tests {
     #[test]
     fn test_message_serialization() {
         let message = Message {
-            id: "msg123".to_string(),
-            room_id: "general".to_string(),
+            id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
+            user_id: "01ARZ3NDEKTSV4RRFFQ69G5FB1".to_string(),
             username: "alice".to_string(),
-            message_text: "Hello world!".to_string(),
-            created_at: Utc::now(),
+            text: "Hello world!".to_string(),
+            timestamp: Utc::now(),
         };
         
         let json = serde_json::to_string(&message).unwrap();
         let deserialized: Message = serde_json::from_str(&json).unwrap();
         
         assert_eq!(message.id, deserialized.id);
-        assert_eq!(message.room_id, deserialized.room_id);
+        assert_eq!(message.user_id, deserialized.user_id);
         assert_eq!(message.username, deserialized.username);
-        assert_eq!(message.message_text, deserialized.message_text);
+        assert_eq!(message.text, deserialized.text);
     }
 
     #[test]
@@ -119,15 +147,15 @@ mod tests {
     #[test]
     fn test_get_messages_response() {
         let messages = vec![
-            Message {
-                id: "msg1".to_string(),
+            ChatMessage {
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
                 room_id: "general".to_string(),
                 username: "alice".to_string(),
                 message_text: "Hello!".to_string(),
                 created_at: Utc::now(),
             },
-            Message {
-                id: "msg2".to_string(),
+            ChatMessage {
+                id: "01ARZ3NDEKTSV4RRFFQ69G5FB2".to_string(),
                 room_id: "general".to_string(),
                 username: "bob".to_string(),
                 message_text: "Hi Alice!".to_string(),

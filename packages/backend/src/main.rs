@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 // use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{
-    HealthCheck, HealthStatus, Message, SendMessageRequest, GetMessagesResponse
+    HealthCheck, HealthStatus, ChatMessage, SendMessageRequest, GetMessagesResponse,
 };
 // use tower::ServiceExt; // Unused for now, but will be needed for Lambda
 use aws_sdk_dynamodb::{
@@ -30,6 +30,7 @@ struct AppState {
     ddb: DynamoDbClient,
     rooms_table: String,
     messages_table: String,
+    metrics: backend::MetricsHelper,
 }
 
 // Error handling for the API
@@ -96,10 +97,14 @@ async fn main() {
     
     tracing::info!("Using tables: rooms={}, messages={}", rooms_table, messages_table);
     
+    // Initialize metrics helper
+    let metrics = backend::MetricsHelper::new().await;
+    
     let state = AppState {
         ddb: ddb_client,
         rooms_table,
         messages_table,
+        metrics,
     };
 
     // Check if running in AWS Lambda
@@ -275,13 +280,16 @@ async fn post_message_handler(
         .map_err(AppError::from_error)?;
 
     tracing::info!("Stored message {} in room {}", message_id, room_id);
+    
+    // Emit metrics for REST message post
+    state.metrics.emit_message_sent(&room_id, message_text.len()).await;
 
     // Create response message
-    let message = Message {
-        id: message_id,
-        room_id,
-        username,
-        message_text,
+    let message = ChatMessage {
+        id: message_id.clone(),
+        room_id: room_id.clone(),
+        username: username.clone(),
+        message_text: message_text.clone(),
         created_at: now,
     };
 
@@ -309,18 +317,18 @@ async fn get_messages_handler(
         .await
         .map_err(AppError::from_error)?;
 
-    let messages: Vec<Message> = result.items
+    let messages: Vec<ChatMessage> = result.items
         .unwrap_or_default()
         .into_iter()
         .filter_map(|item| {
-            // Convert DynamoDB item to Message struct
+            // Convert DynamoDB item to ChatMessage struct
             let id = item.get("id")?.as_s().ok()?.clone();
             let username = item.get("username")?.as_s().ok()?.clone();
             let message_text = item.get("message_text")?.as_s().ok()?.clone();
             let ts = item.get("ts")?.as_n().ok()?.parse::<i64>().ok()?;
             let created_at = chrono::DateTime::from_timestamp_millis(ts)?;
 
-            Some(Message {
+            Some(ChatMessage {
                 id,
                 room_id: room_id.clone(),
                 username,
@@ -356,10 +364,12 @@ mod tests {
         // Create a mock DynamoDB client for testing
         let aws_config = aws_config::defaults(aws_config::BehaviorVersion::latest()).load().await;
         let ddb_client = DynamoDbClient::new(&aws_config);
+        let metrics = backend::MetricsHelper::new().await;
         let state = AppState {
             ddb: ddb_client,
             rooms_table: "test-rooms".to_string(),
             messages_table: "test-messages".to_string(),
+            metrics,
         };
         
         let app = create_app(state);

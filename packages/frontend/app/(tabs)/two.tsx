@@ -4,11 +4,13 @@ import UsernameInput from '../../components/UsernameInput'
 import ChatInterface from '../../components/ChatInterface'
 
 export default function ChatScreen() {
-  const isUsernameSet = useUserStore((state) => state.isUsernameSet())
+  const isUserReady = useUserStore((state) => state.isUserReady())
+  
+  console.log('ChatScreen render - isUserReady:', isUserReady)
 
   return (
     <View flex={1} bg="$background">
-      {isUsernameSet ? (
+      {isUserReady ? (
         <ChatInterface />
       ) : (
         <UsernameInput />

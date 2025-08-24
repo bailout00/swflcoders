@@ -1,0 +1,56 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - apt-get update -y
+      - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+      - apt-get install -y nodejs jq build-essential
+      - corepack enable
+      - yarn set version stable
+      - npm i -g aws-cdk@2.87.0
+      # Install Rust
+      - curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - source ~/.cargo/env
+      - rustup target add aarch64-unknown-linux-musl
+      # Install Zig
+      - wget -q https://ziglang.org/download/0.15.1/zig-linux-x86_64-0.15.1.tar.xz
+      - tar -xf zig-linux-x86_64-0.15.1.tar.xz
+      - mv zig-linux-x86_64-0.15.1 /opt/zig
+      - ln -s /opt/zig/zig /usr/local/bin/zig
+      # Install cargo-zigbuild
+      - source ~/.cargo/env && cargo install cargo-zigbuild
+  pre_build:
+    commands:
+      - node -v
+      - yarn -v
+      - cdk --version
+      - source ~/.cargo/env
+      - cargo --version
+      - rustc --version
+      - zig version
+      - yarn install --immutable
+  build:
+    commands:
+      - source ~/.cargo/env
+      - yarn workspace @swflcoders/types build
+      - yarn workspace @swflcoders/backend build:lambda
+      - yarn workspace @swflcoders/cdk build
+      # Optional: type-check all
+      - yarn workspaces foreach --all run type-check
+  post_build:
+    commands:
+      - echo "Build complete."
+artifacts:
+  files:
+    - yarn.lock
+    - package.json
+    - packages/**/*
+  discard-paths: no
+  exclude-paths:
+    - '**/node_modules/**'
+cache:
+  paths:
+    - '/root/.cache/yarn/**'
+    - '/root/.cargo/**/*'
+    - 'packages/backend/target/**/*'

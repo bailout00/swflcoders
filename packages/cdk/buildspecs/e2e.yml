@@ -1,0 +1,42 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - apt-get update -y
+      - curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+      - apt-get install -y nodejs jq
+      - corepack enable
+      - yarn set version stable
+      - yarn install --immutable
+      - npx playwright install --with-deps
+  pre_build:
+    commands:
+      - node -v
+      - yarn -v
+      - npx playwright --version
+      - STACK_NAME="${STACK_NAME_PREFIX}-${STAGE}"
+      - echo "Fetching outputs for stack: $STACK_NAME"
+      - OUTPUTS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs" --output json)
+      - API_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="ApiEndpoint") | .OutputValue')
+      - HEALTH_URL=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="HealthCheckEndpoint") | .OutputValue')
+      - DOMAIN=$(echo "$OUTPUTS" | jq -r '.[] | select(.OutputKey=="Domain") | .OutputValue')
+      - echo "API_URL=$API_URL"
+      - echo "HEALTH_URL=$HEALTH_URL"
+      - echo "DOMAIN=$DOMAIN"
+  build:
+    commands:
+      # Export env consumed by Playwright config/tests
+      - export BASE_URL="https://$DOMAIN"
+      - export API_URL="$API_URL"
+      - export HEALTH_URL="$HEALTH_URL"
+      - export STAGE="$STAGE"
+      - cd packages/e2e
+      - npx playwright test --reporter=line
+artifacts:
+  files:
+    - 'packages/e2e/test-results/**/*'
+    - 'packages/e2e/playwright-report/**/*'
+cache:
+  paths:
+    - '/root/.cache/yarn/**'

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import { SwflcodersStack } from '../lib/swflcoders-stack';
-import { getStageConfig } from '../src/config';
+import {ApiStack} from '../lib/stacks/api-stack';
+import {CloudwatchDashboardStack} from '../lib/stacks/cloudwatch-dashboard-stack';
+import {getStageConfig} from '../lib/config';
 
 const app = new cdk.App();
 
@@ -9,12 +10,20 @@ const app = new cdk.App();
 const stageName = app.node.tryGetContext('stage') || 'beta';
 const stageConfig = getStageConfig(stageName);
 
-new SwflcodersStack(app, `SwflcodersStack-${stageConfig.name}`, {
-  env: {
-    account: process.env.CDK_DEFAULT_ACCOUNT,
-    region: process.env.CDK_DEFAULT_REGION || 'us-east-1',
-  },
-  stageConfig,
+new ApiStack(app, `ApiStack-${stageConfig.name}`, {
+    env: {
+        account: stageConfig.account,
+        region: stageConfig.region,
+    },
+    stageConfig,
+});
+
+new CloudwatchDashboardStack(app, `CloudwatchDashboardStack-${stageConfig.name}`, {
+    env: {
+        account: stageConfig.account,
+        region: stageConfig.region,
+    },
+    stageConfig,
 });
 
 app.synth();

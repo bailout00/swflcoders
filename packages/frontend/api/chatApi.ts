@@ -1,9 +1,16 @@
+import { ulid } from 'ulid'
 import { Message, SendMessageRequest, SendMessageResponse } from '../types/chat'
+
+// Constants for system users
+const SYSTEM_USER_ID = 'SYSTEM'
+const DEMO_USER_ID = 'DEMO_USER'
+const RANDOM_USER_ID = 'RANDOM_USER'
 
 // Mock data store for demo purposes
 let mockMessages: Message[] = [
   {
-    id: '1',
+    id: ulid(),
+    userId: SYSTEM_USER_ID,
     username: 'System',
     text: 'Welcome to the chat! This is a demo message.',
     timestamp: new Date(Date.now() - 30000),
@@ -36,11 +43,12 @@ export async function sendMessage(request: SendMessageRequest): Promise<SendMess
   
   // Simulate successful message sending
   const newMessage: Message = {
-    id: Date.now().toString(),
+    id: ulid(),
+    userId: request.userId,
     username: request.username,
     text: request.text,
     timestamp: new Date(),
-    isOwnMessage: true,
+    // Don't set isOwnMessage here - let the client determine ownership
   }
   
   // Add to mock store
@@ -49,7 +57,8 @@ export async function sendMessage(request: SendMessageRequest): Promise<SendMess
   // Simulate a response from another user after a delay
   setTimeout(() => {
     const responseMessage: Message = {
-      id: (Date.now() + 1).toString(),
+      id: ulid(),
+      userId: DEMO_USER_ID,
       username: 'Demo User',
       text: `Thanks for your message: "${request.text}"`,
       timestamp: new Date(),
@@ -73,7 +82,8 @@ export async function subscribeToMessages(callback: (message: Message) => void) 
   const interval = setInterval(() => {
     if (Math.random() > 0.8) { // 20% chance every 5 seconds
       const randomMessage: Message = {
-        id: Date.now().toString(),
+        id: ulid(),
+        userId: RANDOM_USER_ID,
         username: 'Random User',
         text: `Random message at ${new Date().toLocaleTimeString()}`,
         timestamp: new Date(),

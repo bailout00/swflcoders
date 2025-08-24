@@ -3,15 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build": "tsc",
+    "build": "yarn workspace @swflcoders/backend build:lambda && tsc && yarn cdk synth",
+    "build:pipeline": "tsc -p tsconfig.json",
+    "build:backend": "yarn workspace @swflcoders/backend build:lambda",
+    "build:backend:docker": "yarn workspace @swflcoders/backend build:lambda:docker",
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk",
     "deploy:beta": "cdk deploy --context stage=beta",
-    "deploy:gamma": "cdk deploy --context stage=gamma", 
+    "deploy:gamma": "cdk deploy --context stage=gamma",
     "deploy:prod": "cdk deploy --context stage=prod",
+    "deploy:pipeline": "cdk deploy --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\" SwflcodersCustomImageStack SwflcodersPipelineStack",
     "diff": "cdk diff",
+    "diff:pipeline": "cdk diff --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\"",
     "synth": "cdk synth",
+    "synth:pipeline": "cdk synth --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\"",
+    "list:pipeline": "cdk list --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\"",
     "clean": "rm -rf dist/ cdk.out/ node_modules/",
     "type-check": "tsc --noEmit"
   },
@@ -19,16 +26,16 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.4.0",
-    "@types/node": "^22.0.0",
-    "jest": "^29.4.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.3.0",
+    "aws-cdk": "2.1026.0",
+    "jest": "^30.0.5",
     "ts-jest": "^29.1.0",
-    "aws-cdk": "2.87.0",
-    "typescript": "~5.0.4"
+    "typescript": "~5.9.2"
   },
   "dependencies": {
-    "aws-cdk-lib": "2.87.0",
-    "constructs": "^10.0.0",
-    "@swflcoders/types": "workspace:*"
+    "@swflcoders/types": "workspace:*",
+    "aws-cdk-lib": "2.212.0",
+    "constructs": "^10.0.0"
   }
 }

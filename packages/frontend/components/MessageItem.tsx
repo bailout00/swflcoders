@@ -15,7 +15,7 @@ export default function MessageItem({ message }: MessageItemProps) {
       paddingHorizontal="$3"
     >
       <YStack
-        backgroundColor={isOwnMessage ? '$blue10' : '$gray3'}
+        backgroundColor={isOwnMessage ? '$blue10' : '$background'}
         padding="$3"
         borderRadius="$4"
         maxWidth="70%"
@@ -25,7 +25,6 @@ export default function MessageItem({ message }: MessageItemProps) {
         {!isOwnMessage && (
           <Text
             fontSize="$2"
-            color="$gray11"
             fontWeight="600"
             marginBottom="$1"
           >
@@ -41,7 +40,7 @@ export default function MessageItem({ message }: MessageItemProps) {
         </Text>
         <Text
           fontSize="$1"
-          color={isOwnMessage ? '$gray3' : '$gray10'}
+          color={isOwnMessage ? '$color3' : '$color10'}
           marginTop="$1"
           textAlign={isOwnMessage ? 'right' : 'left'}
         >

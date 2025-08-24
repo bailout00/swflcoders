@@ -1,8 +1,12 @@
 import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as cr from 'aws-cdk-lib/custom-resources';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { StageConfig } from '../config';
 
@@ -82,23 +86,7 @@ export class ApiStack extends cdk.Stack {
       runtime: lambda.Runtime.PROVIDED_AL2023,
       memorySize: 256,
       architecture: lambda.Architecture.ARM_64,
-      code: lambda.Code.fromAsset('../backend', {
-        bundling: {
-          image: cdk.DockerImage.fromRegistry('public.ecr.aws/amazonlinux/amazonlinux:2023'),
-          command: [
-            'bash', '-lc',
-            [
-              'yum install -y gcc gcc-c++ openssl-devel pkgconfig zip',
-              'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y',
-              'source $HOME/.cargo/env',
-              'rustup target add aarch64-unknown-linux-gnu',
-              'cargo build --release --target aarch64-unknown-linux-gnu -p backend',
-              'cp target/aarch64-unknown-linux-gnu/release/backend bootstrap',
-              'zip -j /asset-output/function.zip bootstrap'
-            ].join(' && ')
-          ],
-        },
-      }),
+      code: lambda.Code.fromAsset('../backend/target/lambda/backend'),
       handler: 'bootstrap',
       environment: {
         CHAT_ROOMS_TABLE: chatRoomsTable.tableName,
@@ -164,6 +152,117 @@ export class ApiStack extends cdk.Stack {
     // GET /chat/messages/{room_id} - Retrieve messages
     messagesResource.addResource('{room_id}').addMethod('GET', new apigateway.LambdaIntegration(rustChatFn));
 
+    // === WebSocket API ===
+    
+    // WebSocket Lambda functions (Rust)
+    const onConnectFunction = new lambda.Function(this, 'OnConnectFunction', {
+      functionName: `ws-onconnect-${stageConfig.name}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: lambda.Code.fromAsset('../backend/target/lambda/ws-connect'),
+      environment: {
+        CONNECTIONS_TABLE: chatConnectionsTable.tableName,
+        STAGE: stageConfig.name,
+      },
+      timeout: cdk.Duration.seconds(10),
+    });
+
+    const onDisconnectFunction = new lambda.Function(this, 'OnDisconnectFunction', {
+      functionName: `ws-ondisconnect-${stageConfig.name}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: lambda.Code.fromAsset('../backend/target/lambda/ws-disconnect'),
+      environment: {
+        CONNECTIONS_TABLE: chatConnectionsTable.tableName,
+        STAGE: stageConfig.name,
+      },
+      timeout: cdk.Duration.seconds(10),
+    });
+
+    const defaultFunction = new lambda.Function(this, 'DefaultFunction', {
+      functionName: `ws-default-${stageConfig.name}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: lambda.Code.fromAsset('../backend/target/lambda/ws-default'),
+      environment: {
+        STAGE: stageConfig.name,
+      },
+      timeout: cdk.Duration.seconds(10),
+    });
+
+    const broadcastFunction = new lambda.Function(this, 'BroadcastFunction', {
+      functionName: `ws-broadcast-${stageConfig.name}`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      architecture: lambda.Architecture.ARM_64,
+      handler: 'bootstrap',
+      code: lambda.Code.fromAsset('../backend/target/lambda/ws-broadcast'),
+      environment: {
+        CONNECTIONS_TABLE: chatConnectionsTable.tableName,
+        STAGE: stageConfig.name,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Grant DynamoDB permissions
+    chatConnectionsTable.grantReadWriteData(onConnectFunction);
+    chatConnectionsTable.grantReadWriteData(onDisconnectFunction);
+    chatConnectionsTable.grantReadWriteData(broadcastFunction);
+
+    // WebSocket API
+    const wsApi = new apigatewayv2.WebSocketApi(this, 'WebSocketApi', {
+      apiName: `Chat WebSocket API - ${stageConfig.name}`,
+      description: `WebSocket API for real-time chat - ${stageConfig.name}`,
+      connectRouteOptions: {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          'ConnectIntegration',
+          onConnectFunction
+        ),
+      },
+      disconnectRouteOptions: {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          'DisconnectIntegration',
+          onDisconnectFunction
+        ),
+      },
+      defaultRouteOptions: {
+        integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
+          'DefaultIntegration',
+          defaultFunction
+        ),
+      },
+    });
+
+    const wsStage = new apigatewayv2.WebSocketStage(this, 'WebSocketStage', {
+      webSocketApi: wsApi,
+      stageName: stageConfig.apiGatewayStage,
+      autoDeploy: true,
+    });
+
+    // Update broadcast function with WebSocket API details
+    broadcastFunction.addEnvironment('WS_API_ID', wsApi.apiId);
+    broadcastFunction.addEnvironment('WS_STAGE', wsStage.stageName);
+
+    // Grant WebSocket management permissions to broadcast function
+    broadcastFunction.addToRolePolicy(new iam.PolicyStatement({
+      effect: iam.Effect.ALLOW,
+      actions: ['execute-api:ManageConnections'],
+      resources: [`arn:aws:execute-api:${this.region}:${this.account}:${wsApi.apiId}/${wsStage.stageName}/POST/@connections/*`],
+    }));
+
+    // Add DynamoDB Stream trigger to broadcast function
+    broadcastFunction.addEventSource(new lambdaEventSources.DynamoEventSource(chatMessagesTable, {
+      startingPosition: lambda.StartingPosition.LATEST,
+      batchSize: 10,
+      filters: [
+        lambda.FilterCriteria.filter({
+          eventName: lambda.FilterRule.isEqual('INSERT'),
+        }),
+      ],
+    }));
+
     // Outputs
     new cdk.CfnOutput(this, 'ApiEndpoint', {
       value: api.url,
@@ -186,19 +285,25 @@ export class ApiStack extends cdk.Stack {
     });
 
     // DynamoDB table outputs
-    new cdk.CfnOutput(this, 'ChatRoomsTable', {
+    new cdk.CfnOutput(this, 'ChatRoomsTableName', {
       value: chatRoomsTable.tableName,
       description: 'Chat rooms DynamoDB table name',
     });
 
-    new cdk.CfnOutput(this, 'ChatMessagesTable', {
+    new cdk.CfnOutput(this, 'ChatMessagesTableName', {
       value: chatMessagesTable.tableName,
       description: 'Chat messages DynamoDB table name',
     });
 
-    new cdk.CfnOutput(this, 'ChatConnectionsTable', {
+    new cdk.CfnOutput(this, 'ChatConnectionsTableName', {
       value: chatConnectionsTable.tableName,
       description: 'Chat connections DynamoDB table name',
+    });
+
+    // WebSocket API outputs
+    new cdk.CfnOutput(this, 'WebSocketUrl', {
+      value: `wss://${wsApi.apiId}.execute-api.${this.region}.amazonaws.com/${wsStage.stageName}`,
+      description: 'WebSocket API URL for real-time chat',
     });
   }
 }

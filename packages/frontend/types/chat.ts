@@ -1,5 +1,6 @@
 export interface Message {
   id: string
+  userId: string
   username: string
   text: string
   timestamp: Date
@@ -7,6 +8,7 @@ export interface Message {
 }
 
 export interface SendMessageRequest {
+  userId: string
   username: string
   text: string
 }

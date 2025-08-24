@@ -3,6 +3,26 @@ name = "backend"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "backend"
+path = "src/main.rs"
+
+[[bin]]
+name = "ws-connect"
+path = "src/lambdas/ws_connect.rs"
+
+[[bin]]
+name = "ws-disconnect"
+path = "src/lambdas/ws_disconnect.rs"
+
+[[bin]]
+name = "ws-default"
+path = "src/lambdas/ws_default.rs"
+
+[[bin]]
+name = "ws-broadcast"
+path = "src/lambdas/ws_broadcast.rs"
+
 [dependencies]
 axum = { version = "0.6", features = ["json", "ws"] }
 tokio = { version = "1.0", features = ["full"] }
@@ -18,6 +38,7 @@ aws-sdk-cognitoidentityprovider = "1.0"
 aws-sdk-dynamodb = "1.0"
 aws-sdk-apigatewaymanagement = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde", "fast-rng"] }
+ulid = "1.1"
 aws_lambda_events = "0.15"
 lambda_http = "0.16"
 lambda_runtime = "0.14"
@@ -28,3 +49,11 @@ types = { path = "../types" }
 [dev-dependencies]
 http-body-util = "0.1"
 tower = { version = "0.4", features = ["util"] }
+
+[profile.dev]
+# Faster debug builds on stable
+incremental = true
+opt-level = 0
+codegen-units = 256
+lto = false
+debug = 1

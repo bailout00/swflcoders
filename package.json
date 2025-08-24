@@ -2,24 +2,34 @@
   "name": "swflcoders",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "yarn@4.9.3",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "pnpm run build:types && pnpm run --filter='!types' build",
-    "build:types": "pnpm run --filter=types build",
-    "dev": "pnpm run --parallel dev",
-    "test": "pnpm run --recursive test",
-    "test:e2e": "pnpm run --filter=e2e test",
-    "deploy:beta": "pnpm run --filter=cdk deploy:beta",
-    "deploy:gamma": "pnpm run --filter=cdk deploy:gamma",
-    "deploy:prod": "pnpm run --filter=cdk deploy:prod",
-    "lint": "pnpm run --recursive lint",
-    "clean": "pnpm run --recursive clean && rm -rf node_modules/ pnpm-lock.yaml",
-    "type-check": "pnpm run --recursive type-check"
+    "build": "yarn run pipeline:build:types && yarn workspaces foreach -tv --exclude @swflcoders/types run build",
+    "build:types": "yarn workspace @swflcoders/types build",
+    "dev": "yarn workspaces foreach -ptv run dev",
+    "test": "yarn workspaces foreach -tv --all run test",
+    "test:e2e": "yarn workspace @swflcoders/e2e test",
+    "deploy:beta": "yarn workspace @swflcoders/cdk deploy:beta",
+    "deploy:gamma": "yarn workspace @swflcoders/cdk deploy:gamma",
+    "deploy:prod": "yarn workspace @swflcoders/cdk deploy:prod",
+    "deploy:pipeline": "yarn workspace @swflcoders/cdk deploy:pipeline",
+    "lint": "yarn workspaces foreach -tv --all run lint",
+    "clean": "yarn workspaces foreach -tv --all run clean || true && rm -rf node_modules/ yarn.lock .pnp.* .yarn/install-state.gz .yarn/cache",
+    "type-check": "yarn workspaces foreach -tv --all run type-check",
+    "pipeline:build:types": "yarn workspace @swflcoders/types build",
+    "pipeline:build:backend": "yarn workspace @swflcoders/backend build:lambda:smart",
+    "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build",
+    "pipeline:test:unit": "yarn workspaces foreach -tv --all run test",
+    "pipeline:test:integ": "echo 'Integration tests not implemented yet'",
+    "pipeline:test:e2e": "echo 'E2E tests not implemented yet'"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "typescript": "^5.0.0",
-    "ts-node": "^10.9.0"
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
   },
   "engines": {
     "node": ">=22.0.0"

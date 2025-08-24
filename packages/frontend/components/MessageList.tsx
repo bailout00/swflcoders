@@ -24,7 +24,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
   if (isLoading) {
     return (
       <YStack flex={1} justifyContent="center" alignItems="center">
-        <Text color="$gray10">Loading messages...</Text>
+        <Text color="$color10">Loading messages...</Text>
       </YStack>
     )
   }
@@ -32,7 +32,7 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <YStack flex={1} justifyContent="center" alignItems="center" padding="$4">
-        <Text color="$gray10" textAlign="center" fontSize="$4">
+        <Text color="$color10" textAlign="center" fontSize="$4">
           No messages yet. Start the conversation!
         </Text>
       </YStack>

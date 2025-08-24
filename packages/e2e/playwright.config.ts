@@ -5,6 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
+  timeout: 60_000,
   /* Run tests in files in parallel */
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -14,7 +15,7 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
+  reporter: process.env.CI ? 'line' : 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
@@ -27,8 +28,13 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
 
-  /* Configure projects for major browsers */
-  projects: [
+  /* Configure projects for major browsers - limit to Chrome in CI for faster execution */
+  projects: process.env.CI ? [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ] : [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
@@ -55,10 +61,12 @@ export default defineConfig({
     },
   ],
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'pnpm --filter=@swflcoders/frontend dev',
-    url: 'http://localhost:8081',
-    reuseExistingServer: !process.env.CI,
-  },
+  /* Only run local dev server when not in CI (CI will test against deployed endpoints) */
+  ...(!process.env.CI && {
+    webServer: {
+      command: 'pnpm --filter=@swflcoders/frontend dev',
+      url: 'http://localhost:8081',
+      reuseExistingServer: true,
+    },
+  }),
 });

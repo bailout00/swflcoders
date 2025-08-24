@@ -11,7 +11,7 @@
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
     "build": "echo 'No build needed for e2e tests'",
-    "dev": "npm run test:ui",
+    "dev": "yarn test:ui",
     "clean": "rm -rf test-results/ playwright-report/ node_modules/",
     "type-check": "tsc --noEmit"
   },

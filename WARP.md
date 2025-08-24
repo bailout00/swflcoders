@@ -140,7 +140,7 @@ When adding new features:
 - **e2e**: Depends on `types` for test assertions
 
 ### Technology Stack Requirements
-- **Node.js**: Version 22+ across all packages
+- **Node.js**: Version 22+ across all packages except `frontend` which uses 20
 - **Package Manager**: pnpm with workspace references (`workspace:*`)
 - **Rust**: Latest stable version with 2021 edition
 - **TypeScript**: Version 5+ with strict mode enabled

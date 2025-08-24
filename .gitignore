@@ -8,6 +8,7 @@ node_modules/
 !.yarn/versions
 .pnp.*
 pnpm-lock.yaml
+pnpm-store
 
 # Build outputs
 dist/

@@ -8,13 +8,43 @@ export const chatQueryKeys = {
   messages: ['messages'] as const,
 }
 
+// Utility function to merge messages by ID, preferring latest version
+function mergeMessagesById(existing: Message[], incoming: Message[]): Message[] {
+  const messageMap = new Map<string, Message>()
+  
+  // Add existing messages
+  existing.forEach(msg => messageMap.set(msg.id, msg))
+  
+  // Add/overwrite with incoming messages
+  incoming.forEach(msg => messageMap.set(msg.id, msg))
+  
+  // Convert back to array and sort by timestamp
+  return Array.from(messageMap.values()).sort((a, b) => 
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  )
+}
+
+// Utility to add ownership to messages based on current userId
+function addOwnership(messages: Message[], currentUserId: string | null): Message[] {
+  return messages.map(msg => ({
+    ...msg,
+    isOwnMessage: currentUserId ? msg.userId === currentUserId : false,
+  }))
+}
+
 // Hook to fetch messages
 export function useMessages() {
+  const currentUserId = useUserStore((state) => state.getUserId())
+  
   return useQuery({
     queryKey: chatQueryKeys.messages,
     queryFn: fetchMessages,
     refetchInterval: 3000, // Refetch every 3 seconds to simulate real-time updates
     staleTime: 1000, // Consider data stale after 1 second
+    select: (messages: Message[]) => {
+      // Add ownership information to all messages
+      return addOwnership(messages, currentUserId)
+    },
   })
 }
 
@@ -22,24 +52,22 @@ export function useMessages() {
 export function useSendMessage() {
   const queryClient = useQueryClient()
   const username = useUserStore((state) => state.username)
+  const userId = useUserStore((state) => state.getUserId())
+  const currentUserId = useUserStore((state) => state.getUserId())
 
   return useMutation({
     mutationFn: (text: string) => {
-      if (!username) {
-        throw new Error('Username is required to send messages')
+      if (!username || !userId) {
+        throw new Error('Username and userId are required to send messages')
       }
-      return sendMessage({ username, text })
+      return sendMessage({ userId, username, text })
     },
     onSuccess: (response) => {
       if (response.success && response.message) {
-        // Optimistically update the query cache
+        // Optimistically update the query cache with deduplication
         queryClient.setQueryData(chatQueryKeys.messages, (old: Message[] = []) => {
-          // Check if message already exists to avoid duplicates
-          const exists = old.some(msg => msg.id === response.message!.id)
-          if (!exists) {
-            return [...old, response.message!]
-          }
-          return old
+          const updatedMessages = mergeMessagesById(old, [response.message!])
+          return addOwnership(updatedMessages, currentUserId)
         })
       }
     },
@@ -53,22 +81,13 @@ export function useSendMessage() {
 // Hook to add optimistic updates for real-time messages
 export function useOptimisticMessage() {
   const queryClient = useQueryClient()
-  const username = useUserStore((state) => state.username)
+  const currentUserId = useUserStore((state) => state.getUserId())
 
   const addMessage = (message: Message) => {
     queryClient.setQueryData(chatQueryKeys.messages, (old: Message[] = []) => {
-      // Mark message as own if it's from the current user
-      const messageWithOwnership = {
-        ...message,
-        isOwnMessage: message.username === username,
-      }
-      
-      // Check if message already exists to avoid duplicates
-      const exists = old.some(msg => msg.id === message.id)
-      if (!exists) {
-        return [...old, messageWithOwnership]
-      }
-      return old
+      // Deduplicate and add ownership information
+      const updatedMessages = mergeMessagesById(old, [message])
+      return addOwnership(updatedMessages, currentUserId)
     })
   }
 

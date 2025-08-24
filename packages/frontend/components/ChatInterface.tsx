@@ -8,22 +8,21 @@ import MessageInput from './MessageInput'
 import { Message } from '../types/chat'
 
 export default function ChatInterface() {
-  const { username, clearUsername } = useUserStore()
+  const username = useUserStore((state) => state.username)
+  const userId = useUserStore((state) => state.getUserId())
+  const clearUser = useUserStore((state) => state.clearUser)
   const { data: messages = [], isLoading, error } = useMessages()
   const sendMessageMutation = useSendMessage()
 
-  // Mark messages as own messages based on current username
-  const messagesWithOwnership: Message[] = messages.map(message => ({
-    ...message,
-    isOwnMessage: message.username === username,
-  }))
+  console.log('ChatInterface render - username:', username, 'userId:', userId)
 
   const handleSendMessage = (text: string) => {
     sendMessageMutation.mutate(text)
   }
 
   const handleLogout = () => {
-    clearUsername()
+    console.log('Logging out user')
+    clearUser()
   }
 
   if (error) {
@@ -44,7 +43,7 @@ export default function ChatInterface() {
       {/* Header */}
       <XStack
         padding="$3"
-        backgroundColor="$gray2"
+        backgroundColor="$shadowColor"
         borderBottomWidth={1}
         borderBottomColor="$borderColor"
         justifyContent="space-between"
@@ -54,7 +53,7 @@ export default function ChatInterface() {
           Chat
         </Text>
         <XStack alignItems="center" gap="$2">
-          <Text fontSize="$3" color="$gray11">
+          <Text fontSize="$3" >
             {username}
           </Text>
           <Button
@@ -70,7 +69,7 @@ export default function ChatInterface() {
 
       {/* Messages */}
       <YStack flex={1}>
-        <MessageList messages={messagesWithOwnership} isLoading={isLoading} />
+        <MessageList messages={messages} isLoading={isLoading} />
       </YStack>
 
       {/* Input */}
