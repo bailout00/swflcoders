@@ -11,7 +11,7 @@
     "test": "jest",
     "cdk": "cdk",
     "deploy:beta": "cdk deploy --context stage=beta",
-    "deploy:pipeline": "cdk deploy --app \"cdk.out.pipeline\" SwflcodersCustomImageStack SwflcodersPipelineStack",
+    "deploy:pipeline": "yarn run build:pipeline && cdk deploy --app \"cdk.out.pipeline\" SwflcodersCustomImageStack SwflcodersPipelineStack",
     "diff": "cdk diff",
     "diff:pipeline": "cdk diff --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\"",
     "synth": "cdk synth",

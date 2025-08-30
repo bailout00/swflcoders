@@ -30,7 +30,8 @@ RUN apt install -y \
     musl-dev \
     musl-tools \
     npm \
-    awscli
+    awscli \
+    docker.io
 
 RUN npm install npm -g
   
