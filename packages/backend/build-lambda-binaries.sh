@@ -21,15 +21,16 @@ echo "📦 Ensuring ARM64 target is available..."
 rustup target add aarch64-unknown-linux-gnu
 
 # Build all binaries for ARM64
-echo "🔨 Building all binaries for ARM64..."
-if cargo build --release --target aarch64-unknown-linux-gnu; then
+BUILD_PROFILE="${BUILD_PROFILE:-release}"
+echo "🔨 Building all binaries for ARM64 with profile: $BUILD_PROFILE..."
+if cargo build --profile "$BUILD_PROFILE" --target aarch64-unknown-linux-gnu --bins; then
     echo "✅ ARM64 build successful"
-    TARGET_DIR="target/aarch64-unknown-linux-gnu/release"
+    TARGET_DIR="target/aarch64-unknown-linux-gnu/$BUILD_PROFILE"
 else
     echo "⚠️  ARM64 cross-compilation failed. Falling back to native build..."
     echo "🔨 Building for native target..."
-    cargo build --release
-    TARGET_DIR="target/release"
+    cargo build --profile "$BUILD_PROFILE" --bins
+    TARGET_DIR="target/$BUILD_PROFILE"
     echo "📝 Note: You're using native binaries. For Lambda deployment, you'll need ARM64 binaries."
     echo "    Consider using Docker for cross-compilation or building on an ARM64 system."
 fi

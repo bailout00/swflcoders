@@ -70,6 +70,7 @@ fi
 
 echo ""
 echo "🚀 Executing build..."
+export BUILD_PROFILE="${BUILD_PROFILE:-ci}"
 
 case $BUILD_METHOD in
     "docker")

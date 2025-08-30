@@ -58,3 +58,10 @@ opt-level = 0
 codegen-units = 256
 lto = false
 debug = 1
+
+[profile.ci]
+inherits = "release"
+incremental = true
+codegen-units = 256
+lto = false
+debug = 0

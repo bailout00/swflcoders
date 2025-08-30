@@ -21,6 +21,8 @@ RUN apt install -y \
     openssh-client \
     gnupg \
     build-essential \
+    clang \
+    lld \
     python3 \
     pkg-config \
     libssl-dev \
@@ -46,6 +48,9 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 RUN rustup target add aarch64-unknown-linux-gnu && \
     rustup target add aarch64-unknown-linux-musl
 
+# Install sccache for build caching
+RUN cargo install sccache && sccache --version
+
 # Install Zig for cross-compilation support (ARM64 version)
 RUN wget https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz && \
     tar -xf zig-linux-aarch64-0.13.0.tar.xz && \
@@ -59,10 +64,15 @@ ENV PATH=/usr/local/zig:$PATH
 RUN cargo install cargo-zigbuild
 
 # Set up cross-compilation environment variables (primarily for musl builds)
-ENV CC_aarch64_unknown_linux_gnu=gcc \
-    CXX_aarch64_unknown_linux_gnu=g++ \
-    AR_aarch64_unknown_linux_gnu=ar \
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=gcc
+ENV CC_aarch64_unknown_linux_gnu=clang \
+    CXX_aarch64_unknown_linux_gnu=clang++ \
+    AR_aarch64_unknown_linux_gnu=llvm-ar \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=clang \
+    RUSTFLAGS="-Clinker=clang -Clink-arg=-fuse-ld=lld"
+
+# Default sccache config
+ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
+    SCCACHE_DIR=/codebuild/sccache
 
 # Set working directory
 WORKDIR /usr/src/app
