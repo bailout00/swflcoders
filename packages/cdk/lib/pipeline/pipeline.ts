@@ -29,6 +29,7 @@ export interface PipelineStackProps extends StackProps {
 export class PipelineStack extends Stack {
   public readonly pipeline: Pipeline;
   private readonly customImageStack?: CustomImageStack;
+  private readonly artifactsBucket: Bucket;
 
   constructor(scope: Construct, id: string, props: PipelineStackProps) {
     super(scope, id, props);
@@ -37,7 +38,7 @@ export class PipelineStack extends Stack {
     this.customImageStack = customImageStack;
 
     // Create S3 bucket for pipeline artifacts
-    const artifactsBucket = new Bucket(this, 'PipelineArtifacts', {
+    this.artifactsBucket = new Bucket(this, 'PipelineArtifacts', {
       bucketName: `swflcoders-pipeline-artifacts-${pipelineConfig.account}`,
       removalPolicy: RemovalPolicy.DESTROY,
       lifecycleRules: [{
@@ -102,7 +103,7 @@ export class PipelineStack extends Stack {
     // Create the main pipeline
     this.pipeline = new Pipeline(this, 'SwflcodersPipeline', {
       pipelineName: 'swflcoders-main-pipeline',
-      artifactBucket: artifactsBucket,
+      artifactBucket: this.artifactsBucket,
       stages: [
         // Source stage
         {
@@ -267,9 +268,13 @@ export class PipelineStack extends Stack {
       },
       environmentVariables: {
         YARN_ENABLE_IMMUTABLE_INSTALLS: { value: 'false' },
+        RUSTC_WRAPPER: { value: '/usr/local/cargo/bin/sccache' },
+        SCCACHE_DIR: { value: '/codebuild/sccache' },
+        SCCACHE_BUCKET: { value: this.artifactsBucket.bucketName },
+        AWS_DEFAULT_REGION: { value: config.region },
       },
       buildSpec,
-      cache: Cache.local(LocalCacheMode.DOCKER_LAYER, LocalCacheMode.CUSTOM),
+      cache: Cache.bucket(this.artifactsBucket),
       timeout: Duration.hours(8),
     });
   }
@@ -285,6 +290,10 @@ export class PipelineStack extends Stack {
       },
       environmentVariables: {
         YARN_ENABLE_IMMUTABLE_INSTALLS: { value: 'false' },
+        RUSTC_WRAPPER: { value: '/usr/local/cargo/bin/sccache' },
+        SCCACHE_DIR: { value: '/codebuild/sccache' },
+        SCCACHE_BUCKET: { value: this.artifactsBucket.bucketName },
+        AWS_DEFAULT_REGION: { value: config.region },
       },
       buildSpec: this.createDeployBuildSpec(config, stageConfig),
       timeout: Duration.hours(1),
@@ -303,6 +312,10 @@ export class PipelineStack extends Stack {
       },
       environmentVariables: {
         YARN_ENABLE_IMMUTABLE_INSTALLS: { value: 'false' },
+        RUSTC_WRAPPER: { value: '/usr/local/cargo/bin/sccache' },
+        SCCACHE_DIR: { value: '/codebuild/sccache' },
+        SCCACHE_BUCKET: { value: this.artifactsBucket.bucketName },
+        AWS_DEFAULT_REGION: { value: config.region },
       },
       buildSpec: BuildSpec.fromObject({
         version: '0.2',
