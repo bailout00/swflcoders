@@ -150,7 +150,6 @@ export class PipelineStack extends Stack {
                 environmentVariables: {
                     STAGE: {value: stage},
                     STACK_NAME_PREFIX: {value: 'ApiStack'},
-                    AWS_REGION: {value: stageConfig.region},
                     AWS_ACCOUNT_ID: {value: stageConfig.account},
                 },
                 runOrder: 1,
@@ -166,7 +165,6 @@ export class PipelineStack extends Stack {
                 environmentVariables: {
                     STAGE: {value: stage},
                     STACK_NAME_PREFIX: {value: 'ApiStack'},
-                    AWS_REGION: {value: stageConfig.region},
                     AWS_ACCOUNT_ID: {value: stageConfig.account},
                 },
                 runOrder: 3,

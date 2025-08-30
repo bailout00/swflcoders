@@ -1,9 +1,15 @@
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use aws_sdk_dynamodb::{Client as DynamoDbClient, types::AttributeValue};
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, sync::LazyLock};
 use tracing::{info, error};
 use backend::MetricsHelper;
+
+// Static constant for required environment variable - will panic at startup if not set
+static CONNECTIONS_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CONNECTIONS_TABLE")
+        .expect("CONNECTIONS_TABLE environment variable must be set")
+});
 
 #[derive(Debug, Deserialize, Serialize)]
 struct WebSocketEvent {
@@ -54,19 +60,25 @@ async fn function_handler(event: LambdaEvent<WebSocketEvent>) -> Result<LambdaRe
         .and_then(|params| params.get("username"))
         .map(|s| s.as_str())
         .unwrap_or("anon");
+    
+    let user_id = event.query_string_parameters
+        .as_ref()
+        .and_then(|params| params.get("userId"))
+        .map(|s| s.as_str())
+        .unwrap_or("anon");
 
     let now = chrono::Utc::now().timestamp_millis();
     let ttl = now / 1000 + (60 * 60 * 24); // 24 hours from now
 
     info!("Connecting user '{}' to room '{}' with connectionId: {}", username, room_id, connection_id);
 
-    // Store connection in DynamoDB
-    let connections_table = env::var("CONNECTIONS_TABLE")
-        .map_err(|_| "CONNECTIONS_TABLE environment variable not set")?;
+    // Store connection in DynamoDB using static constant
+    let connections_table = &*CONNECTIONS_TABLE;
 
     let mut item = HashMap::new();
     item.insert("connection_id".to_string(), AttributeValue::S(connection_id.clone()));
     item.insert("room_id".to_string(), AttributeValue::S(room_id.to_string()));
+    item.insert("user_id".to_string(), AttributeValue::S(user_id.to_string())); // Store user_id
     item.insert("username".to_string(), AttributeValue::S(username.to_string()));
     item.insert("connected_at".to_string(), AttributeValue::N(now.to_string()));
     item.insert("domain".to_string(), AttributeValue::S(domain_name.to_string()));

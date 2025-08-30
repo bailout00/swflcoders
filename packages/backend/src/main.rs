@@ -1,13 +1,15 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, State, Query, WebSocketUpgrade, ws::{WebSocket, Message}},
     http::StatusCode,
-    response::{IntoResponse, Json},
+    response::{IntoResponse, Json, Response},
     routing::{get, post},
     Router,
 };
+// WebSocket support imports - will be used for message handling
+// use futures_util::{sink::SinkExt, stream::StreamExt};
 use chrono::Utc;
 use std::net::SocketAddr;
-// use tower_http::cors::CorsLayer;
+use tower_http::cors::CorsLayer;
 // use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use types::{
@@ -21,9 +23,22 @@ use aws_sdk_dynamodb::{
 use std::{
     env,
     collections::HashMap,
+    sync::LazyLock,
 };
 use uuid::Uuid;
 use serde_json::json;
+use serde::Deserialize;
+
+// Static constants for required environment variables - will panic at startup if not set
+static CHAT_ROOMS_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CHAT_ROOMS_TABLE")
+        .expect("CHAT_ROOMS_TABLE environment variable must be set")
+});
+
+static CHAT_MESSAGES_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CHAT_MESSAGES_TABLE")
+        .expect("CHAT_MESSAGES_TABLE environment variable must be set")
+});
 
 #[derive(Clone)]
 struct AppState {
@@ -89,11 +104,9 @@ async fn main() {
     
     let ddb_client = DynamoDbClient::new(&aws_config);
     
-    // Read environment variables for table names
-    let rooms_table = env::var("CHAT_ROOMS_TABLE")
-        .unwrap_or_else(|_| "chat-rooms-local".to_string());
-    let messages_table = env::var("CHAT_MESSAGES_TABLE")
-        .unwrap_or_else(|_| "chat-messages-local".to_string());
+    // Use static constants for table names - will panic at startup if not set
+    let rooms_table = CHAT_ROOMS_TABLE.clone();
+    let messages_table = CHAT_MESSAGES_TABLE.clone();
     
     tracing::info!("Using tables: rooms={}, messages={}", rooms_table, messages_table);
     
@@ -115,7 +128,7 @@ async fn main() {
     
     // Running locally - use axum server
     let app = create_app(state);
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3001));
     tracing::info!("listening on {}", addr);
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
@@ -128,9 +141,11 @@ fn create_app(state: AppState) -> Router {
         .route("/health", get(health_handler))
         .route("/chat/messages", post(post_message_handler))
         .route("/chat/messages/:room_id", get(get_messages_handler))
+        .route("/ws", get(websocket_handler))
         .with_state(state)
-        // TODO: Re-add CORS and tracing layers after fixing HTTP version conflicts
-        // .layer(CorsLayer::permissive())
+        // Enable CORS for development
+        .layer(CorsLayer::permissive())
+        // TODO: Re-add tracing layer after fixing HTTP version conflicts
         // .layer(TraceLayer::new_for_http())
 }
 
@@ -251,6 +266,7 @@ async fn post_message_handler(
 
     // Validate input
     let room_id = validate_room_id(&request.room_id)?;
+    let user_id = request.user_id.clone(); // Accept userId from request
     let username = validate_username(&request.username)?;
     let message_text = validate_message_text(&request.message_text)?;
 
@@ -265,10 +281,16 @@ async fn post_message_handler(
     let mut item = HashMap::new();
     item.insert("id".to_string(), AttributeValue::S(message_id.clone()));
     item.insert("room_id".to_string(), AttributeValue::S(room_id.clone()));
+    item.insert("user_id".to_string(), AttributeValue::S(user_id.clone())); // Store user_id
     item.insert("username".to_string(), AttributeValue::S(username.clone()));
     item.insert("message_text".to_string(), AttributeValue::S(message_text.clone()));
     item.insert("ts".to_string(), AttributeValue::N(timestamp_millis.to_string()));
     item.insert("created_at_iso".to_string(), AttributeValue::S(now.to_rfc3339()));
+    
+    // Store client_message_id if provided
+    if let Some(client_message_id) = &request.client_message_id {
+        item.insert("client_message_id".to_string(), AttributeValue::S(client_message_id.clone()));
+    }
 
     // Store message in DynamoDB
     state.ddb
@@ -288,9 +310,11 @@ async fn post_message_handler(
     let message = ChatMessage {
         id: message_id.clone(),
         room_id: room_id.clone(),
+        user_id: user_id.clone(),
         username: username.clone(),
         message_text: message_text.clone(),
         created_at: now,
+        client_message_id: request.client_message_id.clone(),
     };
 
     Ok((StatusCode::CREATED, Json(message)))
@@ -311,7 +335,7 @@ async fn get_messages_handler(
         .table_name(&state.messages_table)
         .key_condition_expression("room_id = :room_id")
         .expression_attribute_values(":room_id", AttributeValue::S(room_id.clone()))
-        .scan_index_forward(false) // Most recent first
+        .scan_index_forward(true) // Oldest first
         .limit(25)
         .send()
         .await
@@ -323,17 +347,26 @@ async fn get_messages_handler(
         .filter_map(|item| {
             // Convert DynamoDB item to ChatMessage struct
             let id = item.get("id")?.as_s().ok()?.clone();
+            let user_id = item.get("user_id")
+                .and_then(|v| v.as_s().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "unknown".to_string());
             let username = item.get("username")?.as_s().ok()?.clone();
             let message_text = item.get("message_text")?.as_s().ok()?.clone();
             let ts = item.get("ts")?.as_n().ok()?.parse::<i64>().ok()?;
             let created_at = chrono::DateTime::from_timestamp_millis(ts)?;
+            let client_message_id = item.get("client_message_id")
+                .and_then(|v| v.as_s().ok())
+                .cloned();
 
             Some(ChatMessage {
                 id,
                 room_id: room_id.clone(),
+                user_id,
                 username,
                 message_text,
                 created_at: created_at.with_timezone(&Utc),
+                client_message_id,
             })
         })
         .collect();
@@ -346,6 +379,68 @@ async fn get_messages_handler(
     };
 
     Ok(Json(response))
+}
+
+// WebSocket query parameters
+#[derive(Debug, Deserialize)]
+struct WebSocketParams {
+    room_id: Option<String>,
+    #[serde(rename = "userId")]
+    user_id: Option<String>,
+    username: Option<String>,
+}
+
+// WebSocket handler for development
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    Query(params): Query<WebSocketParams>,
+    State(state): State<AppState>,
+) -> Response {
+    let room_id = params.room_id.unwrap_or_else(|| "general".to_string());
+    let user_id = params.user_id.unwrap_or_else(|| "dev-user".to_string());
+    let username = params.username.unwrap_or_else(|| "Developer".to_string());
+
+    tracing::info!("WebSocket connection request: room={}, user={}, username={}", room_id, user_id, username);
+
+    ws.on_upgrade(move |socket| handle_websocket(socket, room_id, user_id, username, state))
+}
+
+// WebSocket connection handler
+async fn handle_websocket(
+    mut socket: WebSocket,
+    room_id: String,
+    user_id: String,
+    username: String,
+    _state: AppState,
+) {
+    tracing::info!("WebSocket connected: {} ({}) in room {}", username, user_id, room_id);
+
+    // For development, we'll implement a simple message system
+    // In production, this would be handled by the Lambda functions with DynamoDB streams
+
+    // Handle incoming messages
+    while let Some(msg) = socket.recv().await {
+        match msg {
+            Ok(Message::Text(text)) => {
+                tracing::info!("Received WebSocket message: {}", text);
+                // In development mode, WebSocket messages are handled by REST API
+                // Real-time updates will come through DynamoDB streams in production
+            }
+            Ok(Message::Close(_)) => {
+                tracing::info!("WebSocket connection closed for user {}", username);
+                break;
+            }
+            Err(e) => {
+                tracing::error!("WebSocket error for user {}: {}", username, e);
+                break;
+            }
+            _ => {
+                // Ignore other message types (binary, ping, pong)
+            }
+        }
+    }
+    
+    tracing::info!("WebSocket disconnected: {} ({}) from room {}", username, user_id, room_id);
 }
 
 #[cfg(test)]

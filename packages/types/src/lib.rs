@@ -44,9 +44,14 @@ pub struct Message {
 pub struct ChatMessage {
     pub id: String,
     pub room_id: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
     pub username: String,
     pub message_text: String,
     pub created_at: DateTime<Utc>,
+    #[serde(rename = "clientMessageId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 // Legacy room-based API types (keep for backward compatibility)
@@ -54,8 +59,13 @@ pub struct ChatMessage {
 #[ts(export)]
 pub struct SendMessageRequest {
     pub room_id: String,
+    #[serde(rename = "userId")]
+    pub user_id: String,
     pub username: String,
     pub message_text: String,
+    #[serde(rename = "clientMessageId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_message_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -132,16 +142,20 @@ mod tests {
     fn test_send_message_request_validation() {
         let request = SendMessageRequest {
             room_id: "general".to_string(),
+            user_id: "01ARZ3NDEKTSV4RRFFQ69G5FB1".to_string(),
             username: "alice".to_string(),
             message_text: "Hello!".to_string(),
+            client_message_id: Some("01ARZ3NDEKTSV4RRFFQ69G5FB2".to_string()),
         };
         
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: SendMessageRequest = serde_json::from_str(&json).unwrap();
         
         assert_eq!(request.room_id, deserialized.room_id);
+        assert_eq!(request.user_id, deserialized.user_id);
         assert_eq!(request.username, deserialized.username);
         assert_eq!(request.message_text, deserialized.message_text);
+        assert_eq!(request.client_message_id, deserialized.client_message_id);
     }
 
     #[test]
@@ -150,16 +164,20 @@ mod tests {
             ChatMessage {
                 id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string(),
                 room_id: "general".to_string(),
+                user_id: "01ARZ3NDEKTSV4RRFFQ69G5FB1".to_string(),
                 username: "alice".to_string(),
                 message_text: "Hello!".to_string(),
                 created_at: Utc::now(),
+                client_message_id: None,
             },
             ChatMessage {
                 id: "01ARZ3NDEKTSV4RRFFQ69G5FB2".to_string(),
                 room_id: "general".to_string(),
+                user_id: "01ARZ3NDEKTSV4RRFFQ69G5FB3".to_string(),
                 username: "bob".to_string(),
                 message_text: "Hi Alice!".to_string(),
                 created_at: Utc::now(),
+                client_message_id: None,
             },
         ];
         

@@ -2,10 +2,31 @@ use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use aws_sdk_dynamodb::{Client as DynamoDbClient, types::AttributeValue};
 use aws_sdk_apigatewaymanagement::{Client as ApiGatewayClient, primitives::Blob};
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, sync::LazyLock};
 use tracing::{info, error};
 use chrono::{DateTime, Utc};
 use backend::MetricsHelper;
+
+// Static constants for required environment variables - will panic at startup if not set
+static CONNECTIONS_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CONNECTIONS_TABLE")
+        .expect("CONNECTIONS_TABLE environment variable must be set")
+});
+
+static WS_API_ID: LazyLock<String> = LazyLock::new(|| {
+    env::var("WS_API_ID")
+        .expect("WS_API_ID environment variable must be set")
+});
+
+static WS_STAGE: LazyLock<String> = LazyLock::new(|| {
+    env::var("WS_STAGE")
+        .expect("WS_STAGE environment variable must be set")
+});
+
+static AWS_REGION: LazyLock<String> = LazyLock::new(|| {
+    env::var("AWS_REGION")
+        .expect("AWS_REGION environment variable must be set")
+});
 
 #[derive(Deserialize)]
 struct DynamoDBStreamEvent {
@@ -38,9 +59,12 @@ struct AttributeValueWrapper {
 struct ChatMessage {
     id: String,
     room_id: String,
+    user_id: String,
     username: String,
     message_text: String,
     created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client_message_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -58,25 +82,16 @@ async fn function_handler(event: LambdaEvent<DynamoDBStreamEvent>) -> Result<Lam
     let aws_config = aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await;
     let ddb = DynamoDbClient::new(&aws_config);
 
-    // Build WebSocket management client
-    let ws_api_id = env::var("WS_API_ID")
-        .map_err(|_| "WS_API_ID environment variable not set")?;
-    let ws_stage = env::var("WS_STAGE")
-        .map_err(|_| "WS_STAGE environment variable not set")?;
-    let aws_region = env::var("AWS_REGION")
-        .map_err(|_| "AWS_REGION environment variable not set")?;
-
-    let ws_endpoint = format!("https://{}.execute-api.{}.amazonaws.com/{}", ws_api_id, aws_region, ws_stage);
+    // Build WebSocket management client using static constants
+    let ws_endpoint = format!("https://{}.execute-api.{}.amazonaws.com/{}", 
+                             &*WS_API_ID, &*AWS_REGION, &*WS_STAGE);
     let api_gateway_config = aws_sdk_apigatewaymanagement::config::Builder::from(&aws_config)
         .endpoint_url(ws_endpoint)
         .build();
     let api_gateway = ApiGatewayClient::from_conf(api_gateway_config);
 
-    let connections_table = env::var("CONNECTIONS_TABLE")
-        .map_err(|_| "CONNECTIONS_TABLE environment variable not set")?;
-
     for record in event.records {
-        if let Err(e) = process_record(&ddb, &api_gateway, &connections_table, record).await {
+        if let Err(e) = process_record(&ddb, &api_gateway, &*CONNECTIONS_TABLE, record).await {
             error!("Failed to process record: {:?}", e);
             // Continue processing other records even if one fails
         }
@@ -119,16 +134,28 @@ async fn process_record(
         .and_then(|v| v.n.as_ref())
         .and_then(|n| n.parse::<i64>().ok())
         .ok_or("Missing or invalid ts")?;
+    
+    // Extract user_id and client_message_id (may be missing for older messages)
+    let user_id = image.get("user_id")
+        .and_then(|v| v.s.as_ref())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    
+    let client_message_id = image.get("client_message_id")
+        .and_then(|v| v.s.as_ref())
+        .cloned();
 
     // Create the message payload to broadcast
     let message_payload = ChatMessage {
         id: message_id.clone(),
         room_id: room_id.clone(),
+        user_id,
         username: username.clone(),
         message_text: message_text.clone(),
         created_at: DateTime::from_timestamp_millis(ts)
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339(),
+        client_message_id,
     };
 
     info!("Broadcasting message to room {}: {:?}", room_id, message_payload);

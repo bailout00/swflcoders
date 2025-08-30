@@ -1,9 +1,15 @@
 use lambda_runtime::{run, service_fn, Error, LambdaEvent};
 use serde::{Deserialize, Serialize};
 use aws_sdk_dynamodb::{Client as DynamoDbClient, types::AttributeValue};
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, sync::LazyLock};
 use tracing::{info, error};
 use backend::MetricsHelper;
+
+// Static constant for required environment variable - will panic at startup if not set
+static CONNECTIONS_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CONNECTIONS_TABLE")
+        .expect("CONNECTIONS_TABLE environment variable must be set")
+});
 
 #[derive(Debug, Deserialize, Serialize)]
 struct WebSocketEvent {
@@ -37,15 +43,12 @@ async fn function_handler(event: LambdaEvent<WebSocketEvent>) -> Result<LambdaRe
 
     info!("Disconnecting connectionId: {}", connection_id);
 
-    let connections_table = env::var("CONNECTIONS_TABLE")
-        .map_err(|_| "CONNECTIONS_TABLE environment variable not set")?;
-
     // First, get connection info to extract room_id for metrics
     let mut key = HashMap::new();
     key.insert("connection_id".to_string(), AttributeValue::S(connection_id.clone()));
 
     let room_id = match ddb.get_item()
-        .table_name(&connections_table)
+        .table_name(&*CONNECTIONS_TABLE)
         .set_key(Some(key.clone()))
         .send()
         .await
@@ -61,9 +64,9 @@ async fn function_handler(event: LambdaEvent<WebSocketEvent>) -> Result<LambdaRe
         Err(_) => "unknown".to_string()
     };
 
-    // Delete connection from DynamoDB
+    // Delete connection from DynamoDB using static constant
     match ddb.delete_item()
-        .table_name(connections_table)
+        .table_name(&*CONNECTIONS_TABLE)
         .set_key(Some(key))
         .send()
         .await

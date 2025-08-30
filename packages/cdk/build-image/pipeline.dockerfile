@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     PATH=/usr/local/cargo/bin:$PATH \
-    RUST_VERSION=1.82.0 \
+    RUST_VERSION=1.88.0 \
     NODE_VERSION=22
 
 RUN apt update && apt upgrade -y
@@ -33,11 +33,10 @@ RUN npm install npm -g
   
 # Install Node.js 22 (Debian NodeSource)
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get update && apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get update && apt-get install -y nodejs
 
 # Enable Corepack and prepare Yarn
-RUN corepack enable && corepack prepare yarn@4.9.3 --activate && yarn -v
+RUN corepack enable && corepack prepare yarn@4.5.1 --activate && yarn -v
 
 # Install Rust with cross-compilation support for ARM64
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION && \
@@ -51,9 +50,6 @@ ENV CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
     CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
     AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-
-# Install AWS CDK CLI globally
-RUN npm install -g aws-cdk@2.212.0
 
 # Set working directory
 WORKDIR /usr/src/app
