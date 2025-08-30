@@ -16,6 +16,7 @@ build/
 target/
 .expo/
 cdk.out/
+cdk.out.pipeline/
 .tamagui/
 .idea 
 

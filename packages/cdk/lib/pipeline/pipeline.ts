@@ -278,7 +278,9 @@ export class PipelineStack extends Stack {
     return new Project(this, id, {
       role,
       environment: {
-        buildImage: LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
+        buildImage: this.customImageStack 
+          ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
+          : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
         computeType: ComputeType.MEDIUM,
       },
       environmentVariables: {
@@ -293,7 +295,9 @@ export class PipelineStack extends Stack {
     return new Project(this, id, {
       role,
       environment: {
-        buildImage: LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
+        buildImage: this.customImageStack 
+          ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
+          : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
         computeType: ComputeType.MEDIUM,
         privileged: true,
       },
@@ -308,20 +312,17 @@ export class PipelineStack extends Stack {
             commands: [
               'corepack enable',
               'corepack prepare yarn@4.9.2 --activate',
-              'npm install -g aws-cdk',
             ],
           },
           pre_build: {
             commands: [
-              'yarn install',
               'cd packages/cdk',
               'yarn install',
-              'yarn build',
             ],
           },
           build: {
             commands: [
-              "yarn cdk deploy SwflcodersPipelineStack --require-approval never",
+              'yarn cdk deploy SwflcodersPipelineStack --app cdk.out.pipeline --require-approval never',
             ],
           },
         },
@@ -411,10 +412,12 @@ export class PipelineStack extends Stack {
       artifacts: {
         files: [
           '**/*',
+          'packages/backend/target/lambda/**/*',
+          'packages/cdk/cdk.out/**/*',
+          'packages/cdk/cdk.out.pipeline/**/*',
         ],
         'exclude-paths': [
           'node_modules/**/*',
-          'target/**/*',
           '.git/**/*',
         ],
       },
@@ -440,7 +443,6 @@ export class PipelineStack extends Stack {
           commands: [
             'corepack enable',
             'corepack prepare yarn@4.9.2 --activate',
-            'npm install -g aws-cdk',
           ],
         },
         pre_build: {
@@ -449,12 +451,12 @@ export class PipelineStack extends Stack {
             'ls -alh',
             'cd packages/cdk',
             'yarn install',
-            'yarn build',
+            'ls -alh cdk.out',
           ],
         },
         build: {
           commands: [
-            `yarn cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} --require-approval never --verbose`,
+            `yarn cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} --app cdk.out --require-approval never --verbose`,
           ],
         },
       },

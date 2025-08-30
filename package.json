@@ -20,9 +20,9 @@
     "lint": "yarn workspaces foreach --all run lint",
     "clean": "yarn workspaces foreach --all run clean || true && rm -rf node_modules/ yarn.lock .pnp.* .yarn/install-state.gz .yarn/cache",
     "type-check": "yarn workspaces foreach --all run type-check",
-    "pipeline:build:types": "yarn workspace @swflcoders/types build",
-    "pipeline:build:backend": "yarn workspace @swflcoders/backend build:lambda:smart",
-    "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build",
+    "pipeline:build:types": "yarn workspace @swflcoders/types build:pipeline",
+    "pipeline:build:backend": "yarn workspace @swflcoders/backend build:pipeline",
+    "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build:pipeline",
     "pipeline:test:unit": "yarn workspaces foreach --all run test",
     "pipeline:test:integ": "echo 'Integration tests not implemented yet'",
     "pipeline:test:e2e": "echo 'E2E tests not implemented yet'"

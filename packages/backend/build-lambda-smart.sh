@@ -73,8 +73,8 @@ echo "🚀 Executing build..."
 
 case $BUILD_METHOD in
     "docker")
-        echo "🐳 Using Docker build for consistent ARM64 Lambda binaries..."
-        ./build-lambda-binaries-docker.sh "$@"
+        echo "🚫 Docker build disabled by project policy; falling back to native build."
+        ./build-lambda-binaries.sh "$@"
         ;;
     "native-with-warning")
         echo "⚠️  Using native build - binaries may not work on Lambda ARM64"

@@ -10,6 +10,7 @@
   ],
   "scripts": {
     "build": "cargo build && npm run generate-ts && npm run build-ts",
+    "build:pipeline": "npm run build",
     "generate-ts": "cargo test --release && npm run copy-bindings",
     "copy-bindings": "mkdir -p bindings && find target -name '*.ts' -path '*/debug/build/*' -exec cp {} bindings/ \\;",
     "build-ts": "tsc",
