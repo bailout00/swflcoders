@@ -94,8 +94,7 @@ export class PipelineStack extends Stack {
 
     // Build artifacts
     const buildOutput = new Artifact();
-    const integTestOutput = new Artifact();
-    const e2eTestOutput = new Artifact();
+    // Test stages don't publish artifacts
 
     // CDK deploy artifacts for each stage
     const betaDeployOutput = new Artifact();
@@ -126,7 +125,7 @@ export class PipelineStack extends Stack {
           actions: [
             new CodeBuildAction({
               actionName: 'BuildApp',
-              project: this.createBuildProject('BuildProject', pipelineConfig, codeBuildRole, 'build'),
+              project: this.createBuildProject('BuildProject', pipelineConfig, codeBuildRole, 'build', betaStage),
               input: sourceOutput,
               outputs: [buildOutput],
             }),
@@ -159,25 +158,7 @@ export class PipelineStack extends Stack {
           ],
         },
 
-        // Integration Tests (Beta -> Gamma)
-        {
-          stageName: 'TestBeta',
-          actions: [
-            new CodeBuildAction({
-              actionName: 'IntegrationTests',
-              project: this.createTestProject('IntegTestProject', pipelineConfig, codeBuildRole, 'integ', betaStage),
-              input: buildOutput,
-              outputs: [integTestOutput],
-            }),
-            new CodeBuildAction({
-              actionName: 'E2ETests',
-              project: this.createTestProject('E2ETestProject', pipelineConfig, codeBuildRole, 'e2e', betaStage),
-              input: buildOutput,
-              outputs: [e2eTestOutput],
-              runOrder: 2,
-            }),
-          ],
-        },
+        // Tests now run in the Build step; no separate Test stage
 
         // // Manual approval for Gamma
         // {
@@ -251,7 +232,8 @@ export class PipelineStack extends Stack {
     id: string, 
     config: PipelineConfig, 
     role: Role,
-    buildType: 'build' | 'test'
+    buildType: 'build' | 'test',
+    stageConfigForTests?: StageConfig,
   ): Project {
     const buildSpec = buildType === 'build' ? this.createBuildSpec(config) : this.createTestBuildSpec(config);
 
@@ -272,6 +254,7 @@ export class PipelineStack extends Stack {
         SCCACHE_DIR: { value: '/codebuild/sccache' },
         SCCACHE_BUCKET: { value: this.artifactsBucket.bucketName },
         AWS_DEFAULT_REGION: { value: config.region },
+        ...(stageConfigForTests?.testAssumeRoleArn ? { TEST_ASSUME_ROLE_ARN: { value: stageConfigForTests.testAssumeRoleArn } } : {}),
       },
       buildSpec,
       cache: Cache.bucket(this.artifactsBucket),
@@ -527,7 +510,17 @@ export class PipelineStack extends Stack {
           ],
         },
         build: {
-          commands,
+          commands: [
+            'echo Build phase...',
+            'yarn pipeline:build:types',
+            'yarn pipeline:build:backend',
+            'yarn pipeline:cdk:build',
+            // Optional cross-account assume role for tests if provided via env
+            'if [ -n "$TEST_ASSUME_ROLE_ARN" ]; then echo "Assuming test role..."; CREDS=$(aws sts assume-role --role-arn "$TEST_ASSUME_ROLE_ARN" --role-session-name test-session); export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r .Credentials.AccessKeyId); export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r .Credentials.SecretAccessKey); export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r .Credentials.SessionToken); fi',
+            'echo Running tests...',
+            'yarn pipeline:test:integ',
+            'yarn pipeline:test:e2e',
+          ],
         },
       },
       env: {
@@ -539,12 +532,7 @@ export class PipelineStack extends Stack {
           }),
         },
       },
-      artifacts: {
-        files: [
-          'test-results/**/*',
-          'test-reports/**/*',
-        ],
-      },
+      // No artifacts for test steps (avoid upload failures when no files exist)
     });
   }
 }

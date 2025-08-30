@@ -7,6 +7,7 @@ export interface StageConfig {
   region: string;
   cognitoUserPoolId?: string;
   cloudfrontDomain?: string;
+  testAssumeRoleArn?: string;
 }
 
 // Root domain configuration

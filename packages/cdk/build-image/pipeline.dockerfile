@@ -15,6 +15,7 @@ RUN apt update && apt upgrade -y
 RUN apt install -y \
     ca-certificates \
     curl \
+    jq \
     wget \
     unzip \
     git \
