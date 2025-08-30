@@ -31,11 +31,21 @@ export interface SendMessageResponse {
 
 // Helper function to convert backend ChatMessage to frontend Message
 export function chatMessageToMessage(chatMessage: BackendChatMessage, currentUserId?: string): Message {
+  const isOwn = currentUserId ? chatMessage.userId === currentUserId : undefined
+
+  console.log('Converting backend message to frontend:', {
+    backendUserId: chatMessage.userId,
+    currentUserId,
+    isOwn,
+    messageId: chatMessage.id,
+    hasClientMessageId: !!chatMessage.clientMessageId
+  })
+
   return {
     ...chatMessage,
     text: chatMessage.message_text,
     timestamp: new Date(chatMessage.created_at),
-    isOwnMessage: currentUserId ? chatMessage.userId === currentUserId : undefined,
+    isOwnMessage: isOwn,
   }
 }
 
@@ -43,9 +53,9 @@ export function chatMessageToMessage(chatMessage: BackendChatMessage, currentUse
 export function sendMessageRequestToBackend(request: SendMessageRequestUI): BackendSendMessageRequest {
   return {
     room_id: request.roomId,
-    userId: request.userId,
+    user_id: request.userId, // Fix: use snake_case to match backend expectation
     username: request.username,
     message_text: request.text,
-    clientMessageId: request.clientMessageId || null,
+    client_message_id: request.clientMessageId || null, // Fix: use snake_case
   }
 }

@@ -19,7 +19,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.BASE_URL || 'http://localhost:8081',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -64,9 +64,13 @@ export default defineConfig({
   /* Only run local dev server when not in CI (CI will test against deployed endpoints) */
   ...(!process.env.CI && {
     webServer: {
-      command: 'pnpm --filter=@swflcoders/frontend dev',
+      command: 'yarn workspace @swflcoders/frontend web',
       url: 'http://localhost:8081',
       reuseExistingServer: true,
+      timeout: 120 * 1000, // 2 minutes for Expo to start
+      env: {
+        PORT: '8081',
+      },
     },
   }),
 });

@@ -34,8 +34,18 @@ function mergeMessagesById(existing: Message[], incoming: Message[]): Message[] 
       clientMessageIdMap.delete(msg.clientMessageId)
     }
     
-    // Add the new message
-    messageMap.set(msg.id, msg)
+    // Add the new message, preserving ownership if it exists
+    // If we're replacing an existing message, preserve the isOwnMessage property
+    if (messageMap.has(msg.id)) {
+      const existingMsg = messageMap.get(msg.id)!
+      messageMap.set(msg.id, {
+        ...msg,
+        isOwnMessage: msg.isOwnMessage !== undefined ? msg.isOwnMessage : existingMsg.isOwnMessage
+      })
+    } else {
+      messageMap.set(msg.id, msg)
+    }
+
     if (msg.clientMessageId) {
       clientMessageIdMap.set(msg.clientMessageId, msg.id)
     }
@@ -49,10 +59,31 @@ function mergeMessagesById(existing: Message[], incoming: Message[]): Message[] 
 
 // Utility to add ownership to messages based on current userId
 function addOwnership(messages: Message[], currentUserId: string | null): Message[] {
-  return messages.map(msg => ({
-    ...msg,
-    isOwnMessage: currentUserId ? msg.userId === currentUserId : false,
-  }))
+  return messages.map(msg => {
+    // Preserve existing isOwnMessage if it's already set correctly
+    if (msg.isOwnMessage !== undefined) {
+      return msg
+    }
+
+    // Otherwise, determine ownership based on userId comparison
+    const isOwn = currentUserId ? msg.userId === currentUserId : false
+
+    // Debug logging to understand ownership issues
+    if (currentUserId && msg.userId) {
+      console.log('Ownership check:', {
+        messageId: msg.id,
+        messageUserId: msg.userId,
+        currentUserId,
+        isOwn,
+        hasClientMessageId: !!msg.clientMessageId
+      })
+    }
+
+    return {
+      ...msg,
+      isOwnMessage: isOwn,
+    }
+  })
 }
 
 // Hook to fetch messages for a specific room
@@ -74,12 +105,11 @@ export function useMessages(roomId: string = DEFAULT_ROOM_ID) {
 export function useSendMessage(roomId: string = DEFAULT_ROOM_ID) {
   const queryClient = useQueryClient()
   const username = useUserStore((state) => state.username)
-  const userId = useUserStore((state) => state.getUserId())
   const currentUserId = useUserStore((state) => state.getUserId())
 
   return useMutation({
     mutationFn: (text: string) => {
-      if (!username || !userId) {
+      if (!username || !currentUserId) {
         throw new Error('Username and userId are required to send messages')
       }
       
@@ -88,23 +118,31 @@ export function useSendMessage(roomId: string = DEFAULT_ROOM_ID) {
       
       const request: SendMessageRequestUI = {
         roomId,
-        userId,
+        userId: currentUserId,
         username,
         text,
         clientMessageId,
       }
-      
+
       // Optimistically add message to cache before sending
       const optimisticMessage: Message = {
         id: clientMessageId, // Use clientMessageId as temporary ID
         room_id: roomId,
-        userId,
+        userId: currentUserId,
         username,
         text,
         timestamp: new Date(),
         isOwnMessage: true,
         clientMessageId,
       }
+
+      console.log('Creating optimistic message:', {
+        id: optimisticMessage.id,
+        userId: optimisticMessage.userId,
+        username: optimisticMessage.username,
+        currentUserId,
+        isOwnMessage: optimisticMessage.isOwnMessage
+      })
       
       queryClient.setQueryData(chatQueryKeys.messages(roomId), (old: Message[] = []) => {
         const updatedMessages = mergeMessagesById(old, [optimisticMessage])
@@ -143,6 +181,14 @@ export function useOptimisticMessage(roomId: string = DEFAULT_ROOM_ID) {
   const currentUserId = useUserStore((state) => state.getUserId())
 
   const addMessage = (message: Message) => {
+    console.log('Adding WebSocket message:', {
+      messageId: message.id,
+      messageUserId: message.userId,
+      currentUserId,
+      hasClientMessageId: !!message.clientMessageId,
+      isOwnMessage: message.isOwnMessage
+    })
+
     queryClient.setQueryData(chatQueryKeys.messages(roomId), (old: Message[] = []) => {
       // Deduplicate and add ownership information
       const updatedMessages = mergeMessagesById(old, [message])

@@ -52,7 +52,11 @@ export const useUserStore = create<UserState>()(
                 const state = get()
                 return !!(state.username && state.userId)
             },
-            getUserId: () => get().userId,
+            getUserId: () => {
+                const userId = get().userId
+                console.log('Getting user ID:', userId)
+                return userId
+            },
         }),
         {
             name: 'user-storage',

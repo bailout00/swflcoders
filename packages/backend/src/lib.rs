@@ -64,7 +64,7 @@ impl MetricsHelper {
         }
 
         // Log the EMF formatted JSON to stdout - CloudWatch Logs will automatically parse this
-        println!("{}", emf_log.to_string());
+        println!("{}", emf_log);
         
         tracing::debug!("Emitted EMF metric: {} = {}", metric_name, value);
     }

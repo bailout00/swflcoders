@@ -9,7 +9,8 @@ const app = new cdk.App();
 
 // Get stage configurations
 const betaStage = getStageConfig('beta');
-const gammaStage = getStageConfig('gamma'); 
+const gammaStage = getStageConfig('gamma');
+
 const prodStage = getStageConfig('prod');
 
 // Create custom build image stack

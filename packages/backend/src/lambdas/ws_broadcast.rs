@@ -91,7 +91,7 @@ async fn function_handler(event: LambdaEvent<DynamoDBStreamEvent>) -> Result<Lam
     let api_gateway = ApiGatewayClient::from_conf(api_gateway_config);
 
     for record in event.records {
-        if let Err(e) = process_record(&ddb, &api_gateway, &*CONNECTIONS_TABLE, record).await {
+        if let Err(e) = process_record(&ddb, &api_gateway, &CONNECTIONS_TABLE, record).await {
             error!("Failed to process record: {:?}", e);
             // Continue processing other records even if one fails
         }
@@ -153,7 +153,7 @@ async fn process_record(
         username: username.clone(),
         message_text: message_text.clone(),
         created_at: DateTime::from_timestamp_millis(ts)
-            .unwrap_or_else(|| Utc::now())
+            .unwrap_or_else(Utc::now)
             .to_rfc3339(),
         client_message_id,
     };
