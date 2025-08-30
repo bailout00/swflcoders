@@ -31,11 +31,11 @@ pub struct Room {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct Message {
-    pub id: String,             // ULID - unique message identifier
-    #[serde(rename = "userId")]
-    pub user_id: String,        // ULID - sender's unique identifier
-    pub username: String,       // Display name of the sender
-    pub text: String,          // Message content
+    pub id: String, // ULID - unique message identifier
+    #[ts(rename = "userId")]
+    pub user_id: String, // ULID - sender's unique identifier
+    pub username: String, // Display name of the sender
+    pub text: String, // Message content
     pub timestamp: DateTime<Utc>, // When the message was sent
 }
 
@@ -44,13 +44,12 @@ pub struct Message {
 pub struct ChatMessage {
     pub id: String,
     pub room_id: String,
-    #[serde(rename = "userId")]
+    #[ts(rename = "userId")]
     pub user_id: String,
     pub username: String,
     pub message_text: String,
     pub created_at: DateTime<Utc>,
-    #[serde(rename = "clientMessageId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(rename = "clientMessageId")]
     pub client_message_id: Option<String>,
 }
 
@@ -59,12 +58,11 @@ pub struct ChatMessage {
 #[ts(export)]
 pub struct SendMessageRequest {
     pub room_id: String,
-    #[serde(rename = "userId")]
+    #[ts(rename = "userId")]
     pub user_id: String,
     pub username: String,
     pub message_text: String,
-    #[serde(rename = "clientMessageId")]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(rename = "clientMessageId")]
     pub client_message_id: Option<String>,
 }
 
@@ -79,25 +77,20 @@ pub struct GetMessagesResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct SendMessageApiRequest {
-    #[serde(rename = "userId")]
-    pub user_id: String,        // ULID - sender's unique identifier
-    pub username: String,       // Display name of the sender  
-    pub text: String,          // Message content
+    #[ts(rename = "userId")]
+    pub user_id: String, // ULID - sender's unique identifier
+    pub username: String, // Display name of the sender
+    pub text: String,     // Message content
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]
 pub struct ApiResponse<T> {
     pub success: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<Message>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<Message>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
 
@@ -114,7 +107,7 @@ mod tests {
             version: "0.1.0".to_string(),
             timestamp: Utc::now(),
         };
-        
+
         assert_eq!(health.status, HealthStatus::Healthy);
         assert_eq!(health.version, "0.1.0");
     }
@@ -128,10 +121,10 @@ mod tests {
             text: "Hello world!".to_string(),
             timestamp: Utc::now(),
         };
-        
+
         let json = serde_json::to_string(&message).unwrap();
         let deserialized: Message = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(message.id, deserialized.id);
         assert_eq!(message.user_id, deserialized.user_id);
         assert_eq!(message.username, deserialized.username);
@@ -147,10 +140,10 @@ mod tests {
             message_text: "Hello!".to_string(),
             client_message_id: Some("01ARZ3NDEKTSV4RRFFQ69G5FB2".to_string()),
         };
-        
+
         let json = serde_json::to_string(&request).unwrap();
         let deserialized: SendMessageRequest = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(request.room_id, deserialized.room_id);
         assert_eq!(request.user_id, deserialized.user_id);
         assert_eq!(request.username, deserialized.username);
@@ -180,15 +173,15 @@ mod tests {
                 client_message_id: None,
             },
         ];
-        
+
         let response = GetMessagesResponse {
             room_id: "general".to_string(),
             messages,
         };
-        
+
         let json = serde_json::to_string(&response).unwrap();
         let deserialized: GetMessagesResponse = serde_json::from_str(&json).unwrap();
-        
+
         assert_eq!(response.room_id, deserialized.room_id);
         assert_eq!(response.messages.len(), deserialized.messages.len());
         assert_eq!(response.messages[0].username, "alice");

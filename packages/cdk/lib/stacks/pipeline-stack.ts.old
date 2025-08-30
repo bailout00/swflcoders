@@ -26,7 +26,7 @@ export class PipelineStack extends Stack {
             triggerOnPush: true,
         });
 
-        // 2) Build project (Node.js 22 + pnpm)
+        // 2) Build project (Node.js 22 + yarn)
         const buildProject = new codebuild.PipelineProject(this, 'BuildProject', {
             environment: {
                 buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
@@ -35,7 +35,7 @@ export class PipelineStack extends Stack {
             environmentVariables: {
                 NODE_ENV: {value: 'production'},
             },
-            cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),
+            cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
             buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/build.yml'),
         });
 
@@ -53,7 +53,7 @@ export class PipelineStack extends Stack {
                     buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
                     privileged: true, // required for CDK docker bundling
                 },
-                cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER, codebuild.LocalCacheMode.CUSTOM),
+                cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER, codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
                 buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/deploy.yml'),
             });
 
@@ -68,7 +68,7 @@ export class PipelineStack extends Stack {
                     buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
                     privileged: false,
                 },
-                cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM),
+                cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
                 buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/e2e.yml'),
             });
 

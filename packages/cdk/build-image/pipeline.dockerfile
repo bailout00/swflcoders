@@ -45,6 +45,18 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 # Add ARM64 target for Lambda cross-compilation
 RUN rustup target add aarch64-unknown-linux-gnu
 
+# Install Zig for cross-compilation support
+RUN wget https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz && \
+    tar -xf zig-linux-x86_64-0.13.0.tar.xz && \
+    mv zig-linux-x86_64-0.13.0 /usr/local/zig && \
+    rm zig-linux-x86_64-0.13.0.tar.xz
+
+# Add Zig to PATH
+ENV PATH=/usr/local/zig:$PATH
+
+# Install cargo-zigbuild for Zig-based cross-compilation
+RUN cargo install cargo-zigbuild
+
 # Set up cross-compilation environment variables
 ENV CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
     CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \

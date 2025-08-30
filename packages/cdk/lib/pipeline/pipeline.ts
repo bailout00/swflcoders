@@ -314,15 +314,15 @@ export class PipelineStack extends Stack {
           },
           pre_build: {
             commands: [
-              'pnpm install',
+              'yarn install',
               'cd packages/cdk',
-              'pnpm install',
-              'pnpm build',
+              'yarn install',
+              'yarn build',
             ],
           },
           build: {
             commands: [
-              "pnpm cdk deploy SwflcodersPipelineStack --require-approval never",
+              "yarn cdk deploy SwflcodersPipelineStack --require-approval never",
             ],
           },
         },
@@ -383,7 +383,7 @@ export class PipelineStack extends Stack {
               `rustup default ${config.buildSpec.rustVersion}`,
               'rustup target add aarch64-unknown-linux-gnu',
               'corepack enable',
-              'corepack prepare pnpm@9.0.0 --activate',
+              'corepack prepare yarn@4.9.2 --activate',
               'echo System dependencies installed',
             ]),
           ],
@@ -391,16 +391,16 @@ export class PipelineStack extends Stack {
         pre_build: {
           commands: [
             'echo Pre-build phase...',
-            'pnpm install',
+            'yarn install',
             'echo Verifying workspace setup...',
           ],
         },
         build: {
           commands: [
             'echo Build phase...',
-            'pnpm pipeline:build:types',
-            'pnpm pipeline:build:backend',
-            'pnpm pipeline:cdk:build',
+            'yarn pipeline:build:types',
+            'yarn pipeline:build:backend',
+            'yarn pipeline:cdk:build',
           ],
         },
         post_build: {
@@ -440,7 +440,7 @@ export class PipelineStack extends Stack {
           },
           commands: [
             'corepack enable',
-            'corepack prepare pnpm@9.0.0 --activate',
+            'corepack prepare yarn@4.9.2 --activate',
             'npm install -g aws-cdk',
           ],
         },
@@ -449,13 +449,13 @@ export class PipelineStack extends Stack {
             'pwd',
             'ls -alh',
             'cd packages/cdk',
-            'pnpm install',
-            'pnpm build',
+            'yarn install',
+            'yarn build',
           ],
         },
         build: {
           commands: [
-            `pnpm cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} --require-approval never --verbose`,
+            `yarn cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} --require-approval never --verbose`,
           ],
         },
       },
