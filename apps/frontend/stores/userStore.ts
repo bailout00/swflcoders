@@ -1,5 +1,6 @@
 import {create} from 'zustand'
 import {persist, createJSONStorage} from 'zustand/middleware'
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import 'react-native-get-random-values';
 import {ulid} from 'ulid'
 
@@ -55,6 +56,7 @@ export const useUserStore = create<UserState>()(
         }),
         {
             name: 'user-storage',
+            storage: createJSONStorage(() => AsyncStorage),
             version: 2,
             migrate: (persistedState: any, version: number) => {
                 console.log('Migrating user store from version', version, 'to version 2')

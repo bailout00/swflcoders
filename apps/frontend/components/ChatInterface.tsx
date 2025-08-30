@@ -22,7 +22,7 @@ export default function ChatInterface() {
         reconnectCount,
     } = useWebSocketConnection(DEFAULT_ROOM_ID)
 
-    console.log('ChatInterface render - username:', username, 'userId:', userId, 'wsConnected:', wsConnected)
+    // Removed excessive logging that was making it appear like constant re-renders
 
     const handleSendMessage = (text: string) => {
         sendMessageMutation.mutate(text)

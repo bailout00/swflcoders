@@ -138,7 +138,8 @@ export const useWebSocketStore = create<WebSocketState>()(
             const newReconnectCount = currentState.reconnectCount + 1
             
             if (newReconnectCount <= 5) {
-              console.log(`Attempting reconnection ${newReconnectCount}/5 in 2 seconds`)
+              const delayMs = 1000 * Math.pow(2, newReconnectCount - 1)
+              console.log(`Attempting reconnection ${newReconnectCount}/5 in ${delayMs}ms`)
               set({ reconnectCount: newReconnectCount })
               
               setTimeout(() => {
@@ -150,7 +151,7 @@ export const useWebSocketStore = create<WebSocketState>()(
                     latestState.currentUsername
                   )
                 }
-              }, 2000 * newReconnectCount) // Exponential backoff
+              }, 1000 * Math.pow(2, newReconnectCount - 1)) // Exponential backoff: 1s, 2s, 4s, 8s, 16s
             } else {
               set({ 
                 connectionError: 'Connection failed after multiple attempts',
