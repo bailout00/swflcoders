@@ -21,7 +21,7 @@ export class CustomImageStack extends Stack {
     const asset = new DockerImageAsset(this, 'PipelineBuildImage', {
       directory: buildImagePath,
       file: 'pipeline.dockerfile',
-      platform: Platform.LINUX_AMD64,
+      platform: Platform.LINUX_ARM64,
     });
 
     this.imageUri = asset.imageUri;

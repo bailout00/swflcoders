@@ -5,13 +5,12 @@ import {
   CodeBuildAction,
   ManualApprovalAction 
 } from 'aws-cdk-lib/aws-codepipeline-actions';
-import { 
-  Project, 
-  BuildSpec, 
-  LinuxBuildImage, 
-  ComputeType,
-  Cache,
-  LocalCacheMode,
+import {
+    Project,
+    BuildSpec,
+    ComputeType,
+    Cache,
+    LocalCacheMode, LinuxArmBuildImage,
 } from 'aws-cdk-lib/aws-codebuild';
 import { Role, ServicePrincipal, PolicyStatement, Effect, PolicyDocument } from 'aws-cdk-lib/aws-iam';
 import { Bucket } from 'aws-cdk-lib/aws-s3';
@@ -257,8 +256,8 @@ export class PipelineStack extends Stack {
 
     // Use custom image if available, otherwise fall back to standard image
     const buildImage = this.customImageStack 
-      ? LinuxBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-      : LinuxBuildImage.STANDARD_7_0;
+      ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
+      : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0
 
     return new Project(this, id, {
       role,
@@ -271,7 +270,7 @@ export class PipelineStack extends Stack {
       },
       buildSpec,
       cache: Cache.local(LocalCacheMode.DOCKER_LAYER, LocalCacheMode.CUSTOM),
-      timeout: Duration.hours(2),
+      timeout: Duration.hours(8),
     });
   }
 
@@ -279,7 +278,7 @@ export class PipelineStack extends Stack {
     return new Project(this, id, {
       role,
       environment: {
-        buildImage: LinuxBuildImage.STANDARD_7_0,
+        buildImage: LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
         computeType: ComputeType.MEDIUM,
       },
       environmentVariables: {
@@ -294,7 +293,7 @@ export class PipelineStack extends Stack {
     return new Project(this, id, {
       role,
       environment: {
-        buildImage: LinuxBuildImage.STANDARD_7_0,
+        buildImage: LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
         computeType: ComputeType.MEDIUM,
         privileged: true,
       },
@@ -347,8 +346,8 @@ export class PipelineStack extends Stack {
   ): Project {
     // Use custom image if available, otherwise fall back to standard image
     const buildImage = this.customImageStack 
-      ? LinuxBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-      : LinuxBuildImage.STANDARD_7_0;
+      ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
+      : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0
 
     return new Project(this, id, {
       role,

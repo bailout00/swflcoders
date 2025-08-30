@@ -11,8 +11,6 @@
     "test": "jest",
     "cdk": "cdk",
     "deploy:beta": "cdk deploy --context stage=beta",
-    "deploy:gamma": "cdk deploy --context stage=gamma",
-    "deploy:prod": "cdk deploy --context stage=prod",
     "deploy:pipeline": "yarn run build && cdk deploy --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\" SwflcodersCustomImageStack SwflcodersPipelineStack",
     "diff": "cdk diff",
     "diff:pipeline": "cdk diff --app \"npx ts-node --prefer-ts-exts bin/pipeline.ts\"",

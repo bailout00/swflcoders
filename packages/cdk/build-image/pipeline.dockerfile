@@ -1,6 +1,6 @@
 # Custom CodeBuild image for swflcoders project with Yarn, Rust, and dependencies
-# Multi-platform support: works on ARM64 (M3 Mac) and AMD64 (Intel/AWS)
-FROM --platform=linux/amd64 public.ecr.aws/debian/debian:trixie
+# ARM64-native build image for faster Lambda deployment and compatibility
+FROM --platform=linux/arm64 public.ecr.aws/debian/debian:trixie
 
 ENV DEBIAN_FRONTEND=noninteractive \
     RUSTUP_HOME=/usr/local/rustup \
@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt update && apt upgrade -y
 
-# Install system dependencies (Debian-based)
+# Install system dependencies (ARM64-native)
 RUN apt install -y \
     ca-certificates \
     curl \
@@ -24,10 +24,10 @@ RUN apt install -y \
     python3 \
     pkg-config \
     libssl-dev \
+    musl-dev \
+    musl-tools \
     npm \
-    awscli \
-    gcc-aarch64-linux-gnu \
-    libc6-dev-arm64-cross
+    awscli
 
 RUN npm install npm -g
   
@@ -38,18 +38,19 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 # Enable Corepack and prepare Yarn
 RUN corepack enable && corepack prepare yarn@4.5.1 --activate && yarn -v
 
-# Install Rust with cross-compilation support for ARM64
+# Install Rust with native ARM64 and cross-compilation support
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION && \
     chmod -R a+w $RUSTUP_HOME $CARGO_HOME
 
-# Add ARM64 target for Lambda cross-compilation
-RUN rustup target add aarch64-unknown-linux-gnu
+# Add ARM64 targets for Lambda deployment (native ARM64 build)
+RUN rustup target add aarch64-unknown-linux-gnu && \
+    rustup target add aarch64-unknown-linux-musl
 
-# Install Zig for cross-compilation support
-RUN wget https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz && \
-    tar -xf zig-linux-x86_64-0.13.0.tar.xz && \
-    mv zig-linux-x86_64-0.13.0 /usr/local/zig && \
-    rm zig-linux-x86_64-0.13.0.tar.xz
+# Install Zig for cross-compilation support (ARM64 version)
+RUN wget https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz && \
+    tar -xf zig-linux-aarch64-0.13.0.tar.xz && \
+    mv zig-linux-aarch64-0.13.0 /usr/local/zig && \
+    rm zig-linux-aarch64-0.13.0.tar.xz
 
 # Add Zig to PATH
 ENV PATH=/usr/local/zig:$PATH
@@ -57,11 +58,11 @@ ENV PATH=/usr/local/zig:$PATH
 # Install cargo-zigbuild for Zig-based cross-compilation
 RUN cargo install cargo-zigbuild
 
-# Set up cross-compilation environment variables
-ENV CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc \
-    CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++ \
-    AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar \
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+# Set up cross-compilation environment variables (primarily for musl builds)
+ENV CC_aarch64_unknown_linux_gnu=gcc \
+    CXX_aarch64_unknown_linux_gnu=g++ \
+    AR_aarch64_unknown_linux_gnu=ar \
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=gcc
 
 # Set working directory
 WORKDIR /usr/src/app
