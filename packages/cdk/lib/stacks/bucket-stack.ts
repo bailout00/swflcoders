@@ -1,0 +1,80 @@
+import * as cdk from 'aws-cdk-lib';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import { Construct } from 'constructs';
+import { StageConfig } from '../config';
+
+export interface BucketStackProps extends cdk.StackProps {
+  stageConfig: StageConfig;
+}
+
+export class BucketStack extends cdk.Stack {
+  public readonly websiteBucket: s3.Bucket;
+  public readonly logsBucket: s3.Bucket;
+
+  constructor(scope: Construct, id: string, props: BucketStackProps) {
+    super(scope, id, props);
+
+    const { stageConfig } = props;
+    const isProd = stageConfig.environment === 'prod';
+
+    // === S3 Buckets ===
+
+    // Logs bucket for storing access logs
+    this.logsBucket = new s3.Bucket(this, 'LogsBucket', {
+      bucketName: `swflcoders-logs-${stageConfig.name}`,
+      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: !isProd,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      versioned: true,
+      lifecycleRules: [
+        {
+          id: 'DeleteOldLogs',
+          enabled: true,
+          expiration: cdk.Duration.days(365),
+          noncurrentVersionExpiration: cdk.Duration.days(30),
+        },
+      ],
+    });
+
+    // Website bucket for static assets
+    this.websiteBucket = new s3.Bucket(this, 'WebsiteBucket', {
+      bucketName: `swflcoders-website-${stageConfig.name}`,
+      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: !isProd,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL, // CloudFront will access via OAI
+      versioned: true,
+      serverAccessLogsBucket: this.logsBucket,
+      serverAccessLogsPrefix: 'website-access/',
+      cors: [
+        {
+          allowedMethods: [s3.HttpMethods.GET],
+          allowedOrigins: ['*'],
+          allowedHeaders: ['*'],
+          maxAge: 3000,
+        },
+      ],
+      lifecycleRules: [
+        {
+          id: 'DeleteOldVersions',
+          enabled: true,
+          noncurrentVersionExpiration: cdk.Duration.days(30),
+        },
+      ],
+    });
+
+    // === Outputs ===
+    new cdk.CfnOutput(this, 'WebsiteBucketName', {
+      value: this.websiteBucket.bucketName,
+      description: 'Website S3 bucket name',
+      exportName: `WebsiteBucketName-${stageConfig.name}`,
+    });
+
+    new cdk.CfnOutput(this, 'LogsBucketName', {
+      value: this.logsBucket.bucketName,
+      description: 'Logs S3 bucket name',
+      exportName: `LogsBucketName-${stageConfig.name}`,
+    });
+  }
+}

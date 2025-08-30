@@ -452,7 +452,10 @@ export class PipelineStack extends Stack {
         },
         build: {
           commands: [
-            `yarn cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} --app cdk.out --require-approval never --verbose`,
+            // Deploy stacks in dependency order: DNS first (infrequent changes), then Bucket, then others
+            `yarn cdk deploy DnsStack-${stageConfig.name} --app cdk.out --require-approval never --verbose`,
+            `yarn cdk deploy BucketStack-${stageConfig.name} --app cdk.out --require-approval never --verbose`,
+            `yarn cdk deploy ApiStack-${stageConfig.name} CloudwatchDashboardStack-${stageConfig.name} WebsiteStack-${stageConfig.name} --app cdk.out --require-approval never --verbose`,
           ],
         },
       },
