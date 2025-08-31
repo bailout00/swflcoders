@@ -9,12 +9,14 @@ import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { StageConfig } from '../config';
+import { S3BucketOrigin } from 'aws-cdk-lib/aws-cloudfront-origins';
 
 export interface WebsiteStackProps extends cdk.StackProps {
   stageConfig: StageConfig;
   websiteBucket: s3.Bucket;
   logsBucket: s3.Bucket;
   hostedZone: route53.HostedZone;
+  originAccessIdentity: cloudfront.OriginAccessIdentity;
 }
 
 export class WebsiteStack extends cdk.Stack {
@@ -24,7 +26,7 @@ export class WebsiteStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WebsiteStackProps) {
     super(scope, id, props);
 
-    const { stageConfig, websiteBucket, logsBucket, hostedZone } = props;
+    const { stageConfig, websiteBucket, logsBucket, hostedZone, originAccessIdentity } = props;
     const isProd = stageConfig.environment === 'prod';
 
     // === SSL Certificate ===
@@ -36,19 +38,7 @@ export class WebsiteStack extends cdk.Stack {
       });
     }
 
-    // === CloudFront Origin Access Identity ===
-    const originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'OAI', {
-      comment: `OAI for ${stageConfig.name} website`,
-    });
-
-    // Grant CloudFront access to the website bucket
-    websiteBucket.addToResourcePolicy(
-      new iam.PolicyStatement({
-        actions: ['s3:GetObject'],
-        resources: [websiteBucket.arnForObjects('*')],
-        principals: [new iam.CanonicalUserPrincipal(originAccessIdentity.cloudFrontOriginAccessIdentityS3CanonicalUserId)],
-      })
-    );
+    // OAI and bucket policy are created in BucketStack to avoid cross-stack circular dependencies
 
     // === CloudFront Distribution ===
     const distributionConfig: cloudfront.DistributionProps = {
@@ -68,7 +58,7 @@ export class WebsiteStack extends cdk.Stack {
         },
       ],
       defaultBehavior: {
-        origin: new origins.S3Origin(websiteBucket, {
+        origin: S3BucketOrigin.withOriginAccessIdentity(websiteBucket, {
           originAccessIdentity,
         }),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -96,7 +86,7 @@ export class WebsiteStack extends cdk.Stack {
     // In a real deployment, you might want to build and deploy from a CI/CD pipeline
     const deployment = new s3deploy.BucketDeployment(this, 'DeployWebsite', {
       sources: [
-        s3deploy.Source.asset('../../../apps/frontend/dist', {
+        s3deploy.Source.asset('../../apps/frontend/dist', {
           exclude: ['*.map'], // Exclude source maps from deployment
         }),
       ],

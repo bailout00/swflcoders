@@ -1,29 +1,14 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib';
-import {ApiStack} from '../lib/stacks/api-stack';
-import {CloudwatchDashboardStack} from '../lib/stacks/cloudwatch-dashboard-stack';
-import {getStageConfig} from '../lib/config';
+import { stages } from '../lib/config';
+import { registerAppStacks } from '../lib/stacks';
 
 const app = new cdk.App();
 
-// Get stage from context (defaults to 'beta')
-const stageName = app.node.tryGetContext('stage') || 'beta';
-const stageConfig = getStageConfig(stageName);
-
-new ApiStack(app, `ApiStack-${stageConfig.name}`, {
-    env: {
-        account: stageConfig.account,
-        region: stageConfig.region,
-    },
-    stageConfig,
-});
-
-new CloudwatchDashboardStack(app, `CloudwatchDashboardStack-${stageConfig.name}`, {
-    env: {
-        account: stageConfig.account,
-        region: stageConfig.region,
-    },
-    stageConfig,
-});
+// Build all stages at once
+for (const stageConfig of stages) {
+    console.log(`Building stacks for stage: ${stageConfig.name}`);
+    registerAppStacks(app, stageConfig);
+}
 
 app.synth();

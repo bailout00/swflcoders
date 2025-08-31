@@ -1,5 +1,7 @@
 import * as cdk from 'aws-cdk-lib';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { StageConfig } from '../config';
 
@@ -10,6 +12,7 @@ export interface BucketStackProps extends cdk.StackProps {
 export class BucketStack extends cdk.Stack {
   public readonly websiteBucket: s3.Bucket;
   public readonly logsBucket: s3.Bucket;
+  public readonly originAccessIdentity: cloudfront.OriginAccessIdentity;
 
   constructor(scope: Construct, id: string, props: BucketStackProps) {
     super(scope, id, props);
@@ -63,6 +66,24 @@ export class BucketStack extends cdk.Stack {
         },
       ],
     });
+
+    // === CloudFront Origin Access Identity ===
+    this.originAccessIdentity = new cloudfront.OriginAccessIdentity(this, 'OAI', {
+      comment: `OAI for ${stageConfig.name} website`,
+    });
+
+    // Grant CloudFront access to the website bucket via OAI
+    this.websiteBucket.addToResourcePolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: [this.websiteBucket.arnForObjects('*')],
+        principals: [
+          new iam.CanonicalUserPrincipal(
+            this.originAccessIdentity.cloudFrontOriginAccessIdentityS3CanonicalUserId,
+          ),
+        ],
+      }),
+    );
 
     // === Outputs ===
     new cdk.CfnOutput(this, 'WebsiteBucketName', {

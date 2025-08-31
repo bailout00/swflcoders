@@ -20,21 +20,19 @@ import {CustomImageStack} from './custom-image-stack';
 
 export interface PipelineStackProps extends StackProps {
     pipelineConfig: PipelineConfig;
-    betaStage: StageConfig;
-    gammaStage: StageConfig;
-    prodStage: StageConfig;
-    customImageStack?: CustomImageStack;
+    stages: StageConfig[];
+    customImageStack: CustomImageStack;
 }
 
 export class PipelineStack extends Stack {
     public readonly pipeline: Pipeline;
-    private readonly customImageStack?: CustomImageStack;
+    private readonly customImageStack: CustomImageStack;
     private readonly artifactsBucket: Bucket;
 
     constructor(scope: Construct, id: string, props: PipelineStackProps) {
         super(scope, id, props);
 
-        const {pipelineConfig, betaStage, gammaStage, prodStage, customImageStack} = props;
+        const {pipelineConfig, stages, customImageStack} = props;
         this.customImageStack = customImageStack;
 
         // Create S3 bucket for pipeline artifacts
@@ -95,12 +93,14 @@ export class PipelineStack extends Stack {
         // Build artifacts
         const buildOutput = new Artifact();
 
-        // Test artifacts
-        const integTestOutput = new Artifact();
-        const e2eTestOutput = new Artifact();
+        // Test artifacts (will be created per stage)
+        const testOutputs: { [key: string]: { integ: Artifact; e2e: Artifact } } = {};
+
+        // Sort stages by deploy order
+        const sortedStages = stages.sort((a, b) => a.deployOrder - b.deployOrder);
 
         // CDK deploy artifacts for each stage
-        const betaDeployOutput = new Artifact();
+        const deployOutputs: { [key: string]: Artifact } = {};
 
         // Create the main pipeline
         this.pipeline = new Pipeline(this, 'SwflcodersPipeline', {
@@ -128,7 +128,7 @@ export class PipelineStack extends Stack {
                     actions: [
                         new CodeBuildAction({
                             actionName: 'BuildApp',
-                            project: this.createBuildProject('BuildProject', pipelineConfig, codeBuildRole, 'build', betaStage),
+                            project: this.createBuildProject('BuildProject', pipelineConfig, codeBuildRole, 'build', sortedStages[0]),
                             input: sourceOutput,
                             outputs: [buildOutput],
                         }),
@@ -148,103 +148,66 @@ export class PipelineStack extends Stack {
                     ],
                 },
 
-                // Deploy to Beta
-                {
-                    stageName: 'DeployBeta',
-                    actions: [
-                        new CodeBuildAction({
-                            actionName: 'CDKDeployBeta',
-                            project: this.createDeployProject('DeployBetaProject', pipelineConfig, codeBuildRole, betaStage),
-                            input: buildOutput,
-                            outputs: [betaDeployOutput],
-                        }),
-                    ],
-                },
+                // Dynamically create deploy and test stages for each stage
+                ...sortedStages.flatMap((stageConfig, index) => {
+                    const stageName = stageConfig.name;
+                    const capitalizedStageName = stageName.charAt(0).toUpperCase() + stageName.slice(1);
+                    const deployOutput = new Artifact();
+                    deployOutputs[stageName] = deployOutput;
 
-                // Integration Tests (Beta -> Prod)
-                {
-                    stageName: 'TestBeta',
-                    actions: [
-                        new CodeBuildAction({
-                            actionName: 'IntegrationTests',
-                            project: this.createTestProject('IntegTestProject', pipelineConfig, codeBuildRole, 'integ', betaStage),
-                            input: buildOutput,
-                            outputs: [integTestOutput],
-                        }),
-                        new CodeBuildAction({
-                            actionName: 'E2ETests',
-                            project: this.createTestProject('E2ETestProject', pipelineConfig, codeBuildRole, 'e2e', betaStage),
-                            input: buildOutput,
-                            outputs: [e2eTestOutput],
-                            runOrder: 2,
-                        }),
-                    ],
-                },
+                    const pipelineStages: any[] = [];
 
-                // // Manual approval for Gamma
-                // {
-                //   stageName: 'ApproveGamma',
-                //   actions: [
-                //     new ManualApprovalAction({
-                //       actionName: 'ApproveGammaDeployment',
-                //       additionalInformation: 'Review beta tests and approve deployment to gamma environment',
-                //     }),
-                //   ],
-                // },
-                //
-                // // Deploy to Gamma
-                // {
-                //   stageName: 'DeployGamma',
-                //   actions: [
-                //     new CodeBuildAction({
-                //       actionName: 'CDKDeployGamma',
-                //       project: this.createDeployProject('DeployGammaProject', pipelineConfig, codeBuildRole, gammaStage),
-                //       input: buildOutput,
-                //       outputs: [gammaDeployOutput],
-                //     }),
-                //   ],
-                // },
-                //
-                // // Integration Tests (Gamma -> Prod)
-                // {
-                //   stageName: 'TestGamma',
-                //   actions: [
-                //     new CodeBuildAction({
-                //       actionName: 'IntegrationTestsGamma',
-                //       project: this.createTestProject('IntegTestGammaProject', pipelineConfig, codeBuildRole, 'integ', gammaStage),
-                //       input: buildOutput,
-                //     }),
-                //     new CodeBuildAction({
-                //       actionName: 'E2ETestsGamma',
-                //       project: this.createTestProject('E2ETestGammaProject', pipelineConfig, codeBuildRole, 'e2e', gammaStage),
-                //       input: buildOutput,
-                //       runOrder: 2,
-                //     }),
-                //   ],
-                // },
+                    // Deploy stage
+                    pipelineStages.push({
+                        stageName: `Deploy${capitalizedStageName}`,
+                        actions: [
+                            new CodeBuildAction({
+                                actionName: `CDKDeploy${capitalizedStageName}`,
+                                project: this.createDeployProject(`Deploy${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, stageConfig),
+                                input: buildOutput,
+                                outputs: [deployOutput],
+                            }),
+                        ],
+                    });
 
-                // Manual approval for Production
-                {
-                    stageName: 'ApproveProd',
-                    actions: [
-                        new ManualApprovalAction({
-                            actionName: 'ApproveProdDeployment',
-                            additionalInformation: 'Review gamma tests and approve deployment to production environment',
-                        }),
-                    ],
-                },
+                    const integTestOutput = new Artifact();
+                    const e2eTestOutput = new Artifact();
+                    testOutputs[stageName] = { integ: integTestOutput, e2e: e2eTestOutput };
 
-                // Deploy to Production
-                {
-                    stageName: 'DeployProd',
-                    actions: [
-                        new CodeBuildAction({
-                            actionName: 'CDKDeployProd',
-                            project: this.createDeployProject('DeployProdProject', pipelineConfig, codeBuildRole, prodStage),
-                            input: buildOutput,
-                        }),
-                    ],
-                },
+                    pipelineStages.push({
+                        stageName: `Test${capitalizedStageName}`,
+                        actions: [
+                            new CodeBuildAction({
+                                actionName: `IntegrationTests${capitalizedStageName}`,
+                                project: this.createTestProject(`IntegTest${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, 'integ', stageConfig),
+                                input: buildOutput,
+                                outputs: [integTestOutput],
+                            }),
+                            new CodeBuildAction({
+                                actionName: `E2ETests${capitalizedStageName}`,
+                                project: this.createTestProject(`E2ETest${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, 'e2e', stageConfig),
+                                input: buildOutput,
+                                outputs: [e2eTestOutput],
+                                runOrder: 2,
+                            }),
+                        ],
+                    });
+
+                    // Manual approval stage (only for production stages)
+                    if (!stageConfig.isProd) {
+                        pipelineStages.push({
+                            stageName: `Approve${capitalizedStageName}`,
+                            actions: [
+                                new ManualApprovalAction({
+                                    actionName: `Approve${capitalizedStageName}Deployment`,
+                                    additionalInformation: `Review previous tests and approve deployment to ${stageName} environment`,
+                                }),
+                            ],
+                        });
+                    }
+
+                    return pipelineStages;
+                }),
             ],
         });
     }
@@ -273,15 +236,6 @@ export class PipelineStack extends Stack {
             },
             environmentVariables: {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
-                RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
-                SCCACHE_DIR: {value: '/codebuild/sccache'},
-                // Configure S3 caching with proper AWS credentials
-                SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
-                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
-                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
-                SCCACHE_S3_USE_SSL: {value: 'true'},
-                // Ensure sccache uses environment credentials, not instance metadata
-                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
                 AWS_DEFAULT_REGION: {value: config.region},
                 ...(stageConfigForTests && stageConfigForTests.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfigForTests.testAssumeRoleArn}} : {}),
             },
@@ -302,15 +256,7 @@ export class PipelineStack extends Stack {
             },
             environmentVariables: {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
-                RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
-                SCCACHE_DIR: {value: '/codebuild/sccache'},
-                // Configure S3 caching with proper AWS credentials
-                SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
-                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
-                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
-                SCCACHE_S3_USE_SSL: {value: 'true'},
-                // Ensure sccache uses environment credentials, not instance metadata
-                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
+
                 AWS_DEFAULT_REGION: {value: config.region},
             },
             buildSpec: this.createDeployBuildSpec(config, stageConfig),
@@ -330,15 +276,7 @@ export class PipelineStack extends Stack {
             },
             environmentVariables: {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
-                RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
-                SCCACHE_DIR: {value: '/codebuild/sccache'},
-                // Configure S3 caching with proper AWS credentials
-                SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
-                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
-                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
-                SCCACHE_S3_USE_SSL: {value: 'true'},
-                // Ensure sccache uses environment credentials, not instance metadata
-                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
+
                 AWS_DEFAULT_REGION: {value: config.region},
             },
             buildSpec: BuildSpec.fromObject({
@@ -383,9 +321,7 @@ export class PipelineStack extends Stack {
         stageConfig: StageConfig
     ): Project {
         // Use custom image if available, otherwise fall back to standard image
-        const buildImage = this.customImageStack
-            ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-            : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0
+        const buildImage = LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
 
         return new Project(this, id, {
             role,
@@ -395,15 +331,7 @@ export class PipelineStack extends Stack {
             },
             environmentVariables: {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
-                RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
-                SCCACHE_DIR: {value: '/codebuild/sccache'},
-                // Configure S3 caching with proper AWS credentials
-                SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
-                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
-                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
-                SCCACHE_S3_USE_SSL: {value: 'true'},
-                // Ensure sccache uses environment credentials, not instance metadata
-                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
+
                 AWS_DEFAULT_REGION: {value: config.region},
                 ...(stageConfig.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfig.testAssumeRoleArn}} : {}),
             },

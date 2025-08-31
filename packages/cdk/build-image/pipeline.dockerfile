@@ -33,6 +33,9 @@ RUN apt install -y \
     awscli \
     docker.io
 
+# Create symlink for docker command (CDK looks for 'docker', not 'docker.io')
+RUN ln -sf /usr/bin/docker.io /usr/bin/docker
+
 RUN npm install npm -g
   
 # Install Node.js 22 (Debian NodeSource)
@@ -50,8 +53,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 RUN rustup target add aarch64-unknown-linux-gnu && \
     rustup target add aarch64-unknown-linux-musl
 
-# Install sccache for build caching
-RUN cargo install sccache && sccache --version
+# Build caching removed - using CodeBuild's built-in S3 caching instead
 
 # Configure Docker daemon
 RUN mkdir -p /etc/docker && \
@@ -79,13 +81,7 @@ ENV CC_aarch64_unknown_linux_gnu=clang \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=clang \
     RUSTFLAGS="-Clinker=clang -Clink-arg=-fuse-ld=lld"
 
-# Default sccache config (S3 caching for persistent builds)
-ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-    SCCACHE_DIR=/codebuild/sccache \
-    SCCACHE_S3_KEY_PREFIX=sccache/ \
-    SCCACHE_S3_SERVER_SIDE_ENCRYPTION=true \
-    SCCACHE_S3_USE_SSL=true \
-    SCCACHE_S3_NO_CREDENTIALS=false
+# Removed sccache environment configuration
 
 # Set working directory
 WORKDIR /usr/src/app

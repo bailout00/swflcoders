@@ -11,18 +11,17 @@ import {useTheme} from 'tamagui'
 
 export {ErrorBoundary,} from 'expo-router'
 
-export const unstable_settings = {
-    // Ensure that reloading on `/modal` keeps a back button present.
-    initialRouteName: '(tabs)',
-}
+// export const unstable_settings = {
+//     // Ensure that reloading on `/modal` keeps a back button present.
+//     initialRouteName: '(tabs)',
+// }
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync()
 
 export default function RootLayout() {
     const [interLoaded, interError] = useFonts({
-        Inter: require('@tamagui/font-inter/otf/Inter-Medium.otf'),
-        InterBold: require('@tamagui/font-inter/otf/Inter-Bold.otf'),
+        SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     })
 
     useEffect(() => {

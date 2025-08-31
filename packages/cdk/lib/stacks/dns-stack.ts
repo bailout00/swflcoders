@@ -15,12 +15,12 @@ export class DnsStack extends cdk.Stack {
 
     const { stageConfig } = props;
 
-    // Determine the domain for the hosted zone
-    // For prod, use the root domain (e.g., swflcoders.jknott.dev)
-    // For others, use the subdomain (e.g., beta.swflcoders.jknott.dev)
-    const hostedZoneDomain = stageConfig.environment === 'prod'
-      ? stageConfig.domain
-      : stageConfig.domain.split('.').slice(-2).join('.');
+    // Use the domain directly from stage config
+    // This will be:
+    // - beta.swflcoders.jknott.dev for beta
+    // - gamma.swflcoders.jknott.dev for gamma
+    // - swflcoders.jknott.dev for prod
+    const hostedZoneDomain = stageConfig.domain;
 
     // Create hosted zone
     this.hostedZone = new route53.HostedZone(this, 'HostedZone', {
@@ -31,11 +31,9 @@ export class DnsStack extends cdk.Stack {
     // Add basic DNS records that don't change frequently
     // Note: We'll add more specific records (like CloudFront aliases) in other stacks
 
-    // Add NS records for subdomain delegation if this is not prod
-    if (stageConfig.environment !== 'prod') {
-      // This would typically be done manually or through cross-account delegation
-      // For now, we'll just create the hosted zone and let other mechanisms handle delegation
-    }
+    // Note: If using subdomains (beta., gamma.), you may need to set up NS record delegation
+    // from the parent domain. This would typically be done manually in Route53 or through
+    // cross-account delegation depending on your AWS account structure.
 
     // === Outputs ===
     new cdk.CfnOutput(this, 'HostedZoneId', {

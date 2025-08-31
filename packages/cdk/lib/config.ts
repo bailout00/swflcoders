@@ -8,6 +8,8 @@ export interface StageConfig {
   cognitoUserPoolId?: string;
   cloudfrontDomain?: string;
   testAssumeRoleArn?: string;
+  isProd: boolean;
+  deployOrder: number;
 }
 
 // Root domain configuration
@@ -25,6 +27,8 @@ export const stages: StageConfig[] = [
     domain: `beta.${ROOT_DOMAIN}`,
     account: BETA_ACCOUNT,
     region: 'us-east-1',
+    isProd: false,
+    deployOrder: 1,
   },
   {
     name: 'gamma',
@@ -33,6 +37,8 @@ export const stages: StageConfig[] = [
     domain: `gamma.${ROOT_DOMAIN}`,
     account: GAMMA_ACCOUNT,
     region: 'us-east-1',
+    isProd: false,
+    deployOrder: 2,
   },
   {
     name: 'prod',
@@ -41,6 +47,8 @@ export const stages: StageConfig[] = [
     domain: ROOT_DOMAIN,
     account: PROD_ACCOUNT,
     region: 'us-east-1',
+    isProd: true,
+    deployOrder: 3,
   },
 ];
 
