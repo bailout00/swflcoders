@@ -275,7 +275,13 @@ export class PipelineStack extends Stack {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
                 RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
                 SCCACHE_DIR: {value: '/codebuild/sccache'},
+                // Configure S3 caching with proper AWS credentials
                 SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
+                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
+                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
+                SCCACHE_S3_USE_SSL: {value: 'true'},
+                // Ensure sccache uses environment credentials, not instance metadata
+                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
                 AWS_DEFAULT_REGION: {value: config.region},
                 ...(stageConfigForTests && stageConfigForTests.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfigForTests.testAssumeRoleArn}} : {}),
             },
@@ -298,7 +304,13 @@ export class PipelineStack extends Stack {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
                 RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
                 SCCACHE_DIR: {value: '/codebuild/sccache'},
+                // Configure S3 caching with proper AWS credentials
                 SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
+                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
+                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
+                SCCACHE_S3_USE_SSL: {value: 'true'},
+                // Ensure sccache uses environment credentials, not instance metadata
+                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
                 AWS_DEFAULT_REGION: {value: config.region},
             },
             buildSpec: this.createDeployBuildSpec(config, stageConfig),
@@ -320,7 +332,13 @@ export class PipelineStack extends Stack {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
                 RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
                 SCCACHE_DIR: {value: '/codebuild/sccache'},
+                // Configure S3 caching with proper AWS credentials
                 SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
+                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
+                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
+                SCCACHE_S3_USE_SSL: {value: 'true'},
+                // Ensure sccache uses environment credentials, not instance metadata
+                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
                 AWS_DEFAULT_REGION: {value: config.region},
             },
             buildSpec: BuildSpec.fromObject({
@@ -379,7 +397,13 @@ export class PipelineStack extends Stack {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
                 RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
                 SCCACHE_DIR: {value: '/codebuild/sccache'},
+                // Configure S3 caching with proper AWS credentials
                 SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
+                SCCACHE_S3_KEY_PREFIX: {value: 'sccache/'},
+                SCCACHE_S3_SERVER_SIDE_ENCRYPTION: {value: 'true'},
+                SCCACHE_S3_USE_SSL: {value: 'true'},
+                // Ensure sccache uses environment credentials, not instance metadata
+                SCCACHE_S3_NO_CREDENTIALS: {value: 'false'},
                 AWS_DEFAULT_REGION: {value: config.region},
                 ...(stageConfig.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfig.testAssumeRoleArn}} : {}),
             },

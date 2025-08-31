@@ -79,9 +79,13 @@ ENV CC_aarch64_unknown_linux_gnu=clang \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=clang \
     RUSTFLAGS="-Clinker=clang -Clink-arg=-fuse-ld=lld"
 
-# Default sccache config
+# Default sccache config (S3 caching for persistent builds)
 ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
-    SCCACHE_DIR=/codebuild/sccache
+    SCCACHE_DIR=/codebuild/sccache \
+    SCCACHE_S3_KEY_PREFIX=sccache/ \
+    SCCACHE_S3_SERVER_SIDE_ENCRYPTION=true \
+    SCCACHE_S3_USE_SSL=true \
+    SCCACHE_S3_NO_CREDENTIALS=false
 
 # Set working directory
 WORKDIR /usr/src/app
