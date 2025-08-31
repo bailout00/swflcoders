@@ -37,6 +37,7 @@ export default function MessageInput({
       alignItems="flex-end"
     >
       <Input
+        testID="message-input"
         flex={1}
         placeholder="Type a message..."
         value={message}
@@ -50,6 +51,7 @@ export default function MessageInput({
         maxHeight={120}
       />
       <Button
+        testID="send-message-button"
         size="$3"
         circular
         backgroundColor="$blue10"

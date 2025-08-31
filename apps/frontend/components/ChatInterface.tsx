@@ -84,6 +84,7 @@ export default function ChatInterface() {
                         {username}
                     </SizableText>
                     <Button
+                        testID="logout-button"
                         size="$2"
                         variant="outlined"
                         onPress={handleLogout}

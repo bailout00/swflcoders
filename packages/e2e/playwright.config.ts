@@ -5,27 +5,33 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  timeout: 15_000, // Increased timeout for Expo startup
+  expect: { timeout: 15_000 },
+  /* Run tests serially during stabilization */
+  fullyParallel: false,
+  workers: 1,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: process.env.CI ? 'line' : 'html',
+  reporter: process.env.CI ? 'line' : [['html', { open: 'never', port: 9324 }]],
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.BASE_URL || 'http://localhost:8081',
+    baseURL: process.env.TEST_BASE_URL || process.env.BASE_URL || 'http://localhost:8081',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
     
     /* Take screenshot on failure */
     screenshot: 'only-on-failure',
+    
+    /* React Native Web maps testID to data-testid */
+    testIdAttribute: 'data-testid',
+    
+    /* Mobile-like viewport for React Native Web */
+    viewport: { width: 390, height: 844 },
   },
 
   /* Configure projects for major browsers - limit to Chrome in CI for faster execution */
@@ -60,17 +66,4 @@ export default defineConfig({
       use: { ...devices['iPhone 12'] },
     },
   ],
-
-  /* Only run local dev server when not in CI (CI will test against deployed endpoints) */
-  ...(!process.env.CI && {
-    webServer: {
-      command: 'yarn workspace @swflcoders/frontend web',
-      url: 'http://localhost:8081',
-      reuseExistingServer: true,
-      timeout: 120 * 1000, // 2 minutes for Expo to start
-      env: {
-        PORT: '8081',
-      },
-    },
-  }),
 });

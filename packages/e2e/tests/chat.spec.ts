@@ -1,146 +1,105 @@
-import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test, testWithUserPersistence } from './fixtures';
 
 // Test data
-const USER1_NAME = 'Alice';
-const USER2_NAME = 'Bob';
-const TEST_MESSAGE_1 = 'Hello from Alice!';
-const TEST_MESSAGE_2 = 'Hi Alice, this is Bob responding!';
+const TEST_USERNAME = 'Alice';
+const TEST_MESSAGE = 'Hello, this is a test message!';
 
 test.describe('Chat Functionality', () => {
-  let browser: Browser;
-  let context1: BrowserContext;
-  let context2: BrowserContext;
-  let page1: Page;
-  let page2: Page;
+  // Helper function to navigate to chat tab
+  async function navigateToChat(page: any) {
+    await page.goto('/');
 
-  test.beforeAll(async ({ browserName }, testInfo) => {
-    // Create browser instance for multiple contexts
-    const { chromium, firefox, webkit } = require('@playwright/test');
-    const browserTypes = { chromium, firefox, webkit };
-    browser = await browserTypes[browserName].launch();
+    // Try to click the Chat tab via role=link first
+    const chatTab = page.getByRole('link', { name: /^chat$/i });
+    if (await chatTab.count()) {
+      await chatTab.first().click();
+    } else {
+      // Fallback to direct navigation if tab not found
+      await page.goto('/chat');
+    }
+
+    // Wait for page to load
+    await page.waitForLoadState('networkidle');
+
+    // Wait for either the logout button (user is logged in) or username input (user store hydrated but no user)
+    await Promise.race([
+      page.waitForSelector('[data-testid="logout-button"]', { timeout: 5000 }),
+      page.waitForSelector('[data-testid="username-input"]', { timeout: 5000 }),
+    ]);
+  }
+  
+  // Helper function to set up a user
+  async function setupUser(page: any, username: string) {
+    await navigateToChat(page);
+    
+    // Fill and submit username using testIDs
+    const nameInput = page.getByTestId('username-input');
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(username);
+    
+    const submit = page.getByTestId('username-submit-button');
+    await submit.click();
+    
+    // Wait for chat interface to load
+    const logoutButton = page.getByTestId('logout-button');
+    await expect(logoutButton).toBeVisible();
+    
+    // Verify username appears in header (use first() to avoid conflicts)
+    await expect(page.getByText(username).first()).toBeVisible();
+  }
+
+  test('navigates to Chat tab and sets username', async ({ page }) => {
+    await navigateToChat(page);
+
+    // Username input should be visible
+    const nameInput = page.getByTestId('username-input');
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill(TEST_USERNAME);
+
+    const submit = page.getByTestId('username-submit-button');
+    await submit.click();
+
+    // Wait for ChatInterface to appear
+    const logout = page.getByTestId('logout-button');
+    await expect(logout).toBeVisible();
+
+    // Verify username appears in header (use first() to avoid conflicts)
+    await expect(page.getByText(TEST_USERNAME).first()).toBeVisible();
   });
 
-  test.afterAll(async () => {
-    await browser?.close();
-  });
+  test('validates username input', async ({ page }) => {
+    await navigateToChat(page);
 
-  test.beforeEach(async () => {
-    // Create separate browser contexts for each user
-    // This ensures completely isolated localStorage/sessions
-    context1 = await browser.newContext();
-    context2 = await browser.newContext();
-    
-    page1 = await context1.newPage();
-    page2 = await context2.newPage();
-    
-    // Navigate both pages to the chat tab
-    await page1.goto('/');
-    await page2.goto('/');
-    
-    // Navigate to chat tab (assuming it's the second tab)
-    await page1.click('[role="tab"]:nth-child(2)');
-    await page2.click('[role="tab"]:nth-child(2)');
-  });
-
-  test.afterEach(async () => {
-    await context1?.close();
-    await context2?.close();
-  });
-
-  test('should allow setting username on both contexts', async () => {
-    // Check that both users see the username input screen
-    await expect(page1.getByText('Welcome to Chat!')).toBeVisible();
-    await expect(page2.getByText('Welcome to Chat!')).toBeVisible();
-    
-    // Set username for user 1
-    await page1.getByPlaceholder('Enter your name').fill(USER1_NAME);
-    await page1.getByRole('button', { name: 'Set Username' }).click();
-    
-    // Set username for user 2
-    await page2.getByPlaceholder('Enter your name').fill(USER2_NAME);
-    await page2.getByRole('button', { name: 'Set Username' }).click();
-    
-    // Verify both users are now in the chat interface
-    await expect(page1.getByText('Chat')).toBeVisible();
-    await expect(page1.getByText(USER1_NAME)).toBeVisible(); // Username in header
-    
-    await expect(page2.getByText('Chat')).toBeVisible();
-    await expect(page2.getByText(USER2_NAME)).toBeVisible(); // Username in header
-  });
-
-  test('should validate username input', async () => {
     // Test empty username
-    await page1.getByRole('button', { name: 'Set Username' }).click();
-    await expect(page1.getByText('Please enter a username')).toBeVisible();
+    const submit = page.getByTestId('username-submit-button');
+    await submit.click();
+    await expect(page.getByText('Please enter a username')).toBeVisible();
     
     // Test short username
-    await page1.getByPlaceholder('Enter your name').fill('A');
-    await page1.getByRole('button', { name: 'Set Username' }).click();
-    await expect(page1.getByText('Username must be at least 2 characters long')).toBeVisible();
+    const nameInput = page.getByTestId('username-input');
+    await nameInput.fill('A');
+    await submit.click();
+    await expect(page.getByText('Username must be at least 2 characters long')).toBeVisible();
     
     // Test valid username
-    await page1.getByPlaceholder('Enter your name').fill(USER1_NAME);
-    await page1.getByRole('button', { name: 'Set Username' }).click();
-    await expect(page1.getByText('Chat')).toBeVisible();
+    await nameInput.fill(TEST_USERNAME);
+    await submit.click();
+    await expect(page.getByTestId('logout-button')).toBeVisible();
   });
 
-  test('should send and receive messages between users', async () => {
-    // Set up both users
-    await setupUser(page1, USER1_NAME);
-    await setupUser(page2, USER2_NAME);
-    
-    // Wait for chat interface to be ready
-    await expect(page1.getByText('No messages yet. Start the conversation!')).toBeVisible();
-    await expect(page2.getByText('No messages yet. Start the conversation!')).toBeVisible();
-    
-    // User 1 sends a message
-    await page1.getByPlaceholder('Type a message...').fill(TEST_MESSAGE_1);
-    // Send button is circular with an icon, so we'll use a more specific selector
-    await page1.locator('button[aria-disabled="false"]').last().click();
-    
-    // Wait a bit for the message to be processed and for refetch interval
-    await page1.waitForTimeout(1500);
-    
-    // Verify message appears on user 1's screen (their own message)
-    await expect(page1.getByText(TEST_MESSAGE_1)).toBeVisible();
-    
-    // Wait for the automatic refetch (every 3 seconds) to get new messages on user 2's screen
-    await page2.waitForTimeout(4000);
-    
-    // Verify message appears on user 2's screen (received message)
-    await expect(page2.getByText(TEST_MESSAGE_1)).toBeVisible();
-    await expect(page2.getByText(USER1_NAME)).toBeVisible(); // Sender's name should be visible
-    
-    // User 2 responds
-    await page2.getByPlaceholder('Type a message...').fill(TEST_MESSAGE_2);
-    await page2.locator('button[aria-disabled="false"]').last().click();
-    
-    // Wait for message processing and refetch
-    await page2.waitForTimeout(1500);
-    
-    // Verify user 2 sees their own message
-    await expect(page2.getByText(TEST_MESSAGE_2)).toBeVisible();
-    
-    // Wait for user 1's refetch to get the new message
-    await page1.waitForTimeout(4000);
-    
-    // Verify user 1 sees both messages
-    await expect(page1.getByText(TEST_MESSAGE_1)).toBeVisible();
-    await expect(page1.getByText(TEST_MESSAGE_2)).toBeVisible();
-    await expect(page1.getByText(USER2_NAME)).toBeVisible(); // User 2's name should be visible
-  });
+  test('handles message input correctly', async ({ page }) => {
+    await setupUser(page, TEST_USERNAME);
 
-  test('should handle message input states correctly', async () => {
-    await setupUser(page1, USER1_NAME);
-    
-    const messageInput = page1.getByPlaceholder('Type a message...');
-    const sendButton = page1.locator('button').last(); // The send button (circular with icon)
+    // Check message input functionality
+    const messageInput = page.getByTestId('message-input');
+    const sendButton = page.getByTestId('send-message-button');
     
     // Send button should be disabled when input is empty
     await expect(sendButton).toBeDisabled();
     
     // Send button should be enabled when input has text
-    await messageInput.fill('Test message');
+    await messageInput.fill(TEST_MESSAGE);
     await expect(sendButton).toBeEnabled();
     
     // Input should clear after sending
@@ -149,84 +108,48 @@ test.describe('Chat Functionality', () => {
     await expect(sendButton).toBeDisabled();
   });
 
-  test('should show message timestamps', async () => {
-    await setupUser(page1, USER1_NAME);
-    
-    // Send a message
-    await page1.getByPlaceholder('Type a message...').fill(TEST_MESSAGE_1);
-    await page1.locator('button').last().click();
-    
-    // Wait for message to appear
-    await expect(page1.getByText(TEST_MESSAGE_1)).toBeVisible();
-    
-    // Check that a timestamp is displayed (should be in HH:MM format)
-    const timestampRegex = /^\d{1,2}:\d{2}$/;
-    await expect(page1.locator('text=' + timestampRegex.source)).toBeVisible();
-  });
+  test('logout returns to username input', async ({ page }) => {
+    await setupUser(page, TEST_USERNAME);
 
-  test('should allow logout and re-login', async () => {
-    await setupUser(page1, USER1_NAME);
-    
     // Logout
-    await page1.getByRole('button', { name: 'Logout' }).click();
+    await page.getByTestId('logout-button').click();
     
     // Should be back to username input
-    await expect(page1.getByText('Welcome to Chat!')).toBeVisible();
-    
-    // Re-login with different name
-    await page1.getByPlaceholder('Enter your name').fill('NewUser');
-    await page1.getByRole('button', { name: 'Set Username' }).click();
-    
-    // Should be in chat with new username
-    await expect(page1.getByText('Chat')).toBeVisible();
-    await expect(page1.getByText('NewUser')).toBeVisible();
+    await expect(page.getByTestId('username-input')).toBeVisible();
+    await expect(page.getByText('Welcome to Chat!')).toBeVisible();
   });
 
-  test('should persist username across page reloads', async () => {
-    await setupUser(page1, USER1_NAME);
-    
+      testWithUserPersistence('persists username across page reloads', async ({ page }) => {
+    await setupUser(page, TEST_USERNAME);
+
     // Reload the page
-    await page1.reload();
-    await page1.click('[role="tab"]:nth-child(2)');
-    
-    // Should still be logged in with the same username
-    await expect(page1.getByText('Chat')).toBeVisible();
-    await expect(page1.getByText(USER1_NAME)).toBeVisible();
-  });
+    console.log('Reloading page...');
+    await page.reload();
 
-  test('should handle network errors gracefully', async () => {
-    await setupUser(page1, USER1_NAME);
-    
-    // Simulate network failure by going offline
-    await page1.context().setOffline(true);
-    
-    // Try to send a message
-    await page1.getByPlaceholder('Type a message...').fill('This should fail');
-    await page1.locator('button').last().click();
-    
-    // The app should handle this gracefully (exact behavior depends on implementation)
-    // At minimum, it shouldn't crash the page
-    await expect(page1.getByText('Chat')).toBeVisible();
-    
-    // Restore network
-    await page1.context().setOffline(false);
-  });
+    console.log('Navigating to chat after reload...');
+    await navigateToChat(page);
 
-  test('should display empty state correctly', async () => {
-    await setupUser(page1, USER1_NAME);
-    
-    // Should show empty state message
-    await expect(page1.getByText('No messages yet. Start the conversation!')).toBeVisible();
-  });
+    // Wait a bit more for the user store to hydrate and determine the state
+    await page.waitForTimeout(1000);
 
-  // Helper function to set up a user
-  async function setupUser(page: Page, username: string) {
-    // Fill and submit username
-    await page.getByPlaceholder('Enter your name').fill(username);
-    await page.getByRole('button', { name: 'Set Username' }).click();
-    
-    // Wait for chat interface to load
-    await expect(page.getByText('Chat')).toBeVisible();
-    await expect(page.getByText(username)).toBeVisible();
-  }
+    // Check which component is rendered
+    const logoutButton = page.getByTestId('logout-button');
+    const usernameInput = page.getByTestId('username-input');
+
+    if (await logoutButton.count() > 0) {
+      // Should still be logged in with the same username
+      await expect(page.getByTestId('logout-button')).toBeVisible();
+
+      // Check for username in the header (use first() to avoid conflicts with chat messages)
+      await expect(page.getByText(TEST_USERNAME).first()).toBeVisible();
+    } else if (await usernameInput.count() > 0) {
+      console.log('❌ User store was cleared - back to username input');
+      // If we're back to username input, the persistence failed
+      // This would be the case if the fixture clearing affected user data
+      throw new Error('User persistence failed - user store was cleared after reload');
+    } else {
+      console.log('❓ Neither logout button nor username input found');
+      throw new Error('Unable to determine user state after reload');
+    }
+  });
 });

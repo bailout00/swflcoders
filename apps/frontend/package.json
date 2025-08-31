@@ -14,6 +14,7 @@
     "ios": "expo run:ios",
     "expo:fix": "expo fix",
     "web": "expo start --web",
+    "e2e:web": "CI=1 BROWSER=none EXPO_DEBUG=false expo start --web --port 3000 --clear",
     "test": "jest --watchAll",
     "build": "echo 'Frontend build skipped for now - focus on backend/CDK deployment'"
   },

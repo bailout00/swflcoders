@@ -39,8 +39,8 @@ RUN npm install npm -g
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get update && apt-get install -y nodejs
 
-# Enable Corepack and prepare Yarn
-RUN corepack enable && corepack prepare yarn@4.5.1 --activate && yarn -v
+# Enable Corepack and prepare Yarn (matching CodeBuild version)
+RUN corepack enable && corepack prepare yarn@4.9.2 --activate && yarn -v
 
 # Install Rust with native ARM64 and cross-compilation support
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain $RUST_VERSION && \
@@ -52,6 +52,13 @@ RUN rustup target add aarch64-unknown-linux-gnu && \
 
 # Install sccache for build caching
 RUN cargo install sccache && sccache --version
+
+# Configure Docker daemon
+RUN mkdir -p /etc/docker && \
+    echo '{"storage-driver": "overlay2", "mtu": 1450}' > /etc/docker/daemon.json
+
+# Create Docker group and add codebuild-user
+RUN groupadd -g 497 docker || true
 
 # Install Zig for cross-compilation support (ARM64 version)
 RUN wget https://ziglang.org/download/0.13.0/zig-linux-aarch64-0.13.0.tar.xz && \
@@ -79,5 +86,30 @@ ENV RUSTC_WRAPPER=/usr/local/cargo/bin/sccache \
 # Set working directory
 WORKDIR /usr/src/app
 
-# Default command
+# Start Docker daemon and set up environment
+RUN service docker start || true
+
+# Set up entrypoint to ensure Docker is running
+COPY <<EOF /usr/local/bin/docker-entrypoint.sh
+#!/bin/bash
+# Start Docker daemon if not already running
+if ! pgrep -f dockerd > /dev/null; then
+    echo "Starting Docker daemon..."
+    dockerd &
+    sleep 2
+fi
+
+# Add user to docker group if not already
+if ! groups | grep -q docker; then
+    usermod -a -G docker codebuild-user 2>/dev/null || true
+fi
+
+# Execute the main command
+exec "\$@"
+EOF
+
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Default command with Docker entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["bash"]

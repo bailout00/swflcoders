@@ -94,7 +94,10 @@ export class PipelineStack extends Stack {
 
         // Build artifacts
         const buildOutput = new Artifact();
-        // Test stages don't publish artifacts
+
+        // Test artifacts
+        const integTestOutput = new Artifact();
+        const e2eTestOutput = new Artifact();
 
         // CDK deploy artifacts for each stage
         const betaDeployOutput = new Artifact();
@@ -158,7 +161,25 @@ export class PipelineStack extends Stack {
                     ],
                 },
 
-                // Tests now run in the Build step; no separate Test stage
+                // Integration Tests (Beta -> Prod)
+                {
+                    stageName: 'TestBeta',
+                    actions: [
+                        new CodeBuildAction({
+                            actionName: 'IntegrationTests',
+                            project: this.createTestProject('IntegTestProject', pipelineConfig, codeBuildRole, 'integ', betaStage),
+                            input: buildOutput,
+                            outputs: [integTestOutput],
+                        }),
+                        new CodeBuildAction({
+                            actionName: 'E2ETests',
+                            project: this.createTestProject('E2ETestProject', pipelineConfig, codeBuildRole, 'e2e', betaStage),
+                            input: buildOutput,
+                            outputs: [e2eTestOutput],
+                            runOrder: 2,
+                        }),
+                    ],
+                },
 
                 // // Manual approval for Gamma
                 // {
@@ -235,7 +256,9 @@ export class PipelineStack extends Stack {
         buildType: 'build' | 'test',
         stageConfigForTests?: StageConfig,
     ): Project {
-        const buildSpec = buildType === 'build' ? this.createBuildSpec(config) : this.createTestBuildSpec(config);
+        const buildSpec = buildType === 'build'
+            ? this.createBuildSpec(config)
+            : this.createTestBuildSpec(config, buildType as 'integ' | 'e2e', stageConfigForTests!);
 
         // Use custom image if available, otherwise fall back to standard image
         const buildImage = this.customImageStack
@@ -254,7 +277,7 @@ export class PipelineStack extends Stack {
                 SCCACHE_DIR: {value: '/codebuild/sccache'},
                 SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
                 AWS_DEFAULT_REGION: {value: config.region},
-                ...(stageConfigForTests?.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfigForTests.testAssumeRoleArn}} : {}),
+                ...(stageConfigForTests && stageConfigForTests.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfigForTests.testAssumeRoleArn}} : {}),
             },
             buildSpec,
             cache: Cache.bucket(this.artifactsBucket),
@@ -306,13 +329,8 @@ export class PipelineStack extends Stack {
                     install: {
                         'runtime-versions': {nodejs: config.buildSpec.nodeVersion},
                         commands: [
-                            // Install Docker for building custom images
-                            'yum update -y',
-                            'amazon-linux-extras install docker -y',
-                            'service docker start',
-                            'usermod -a -G docker codebuild-user || true',
-                            'corepack enable',
-                            'corepack prepare yarn@4.9.2 --activate',
+                            // Corepack and Yarn are pre-configured in custom image
+                            'echo "Using pre-configured Yarn from custom image"',
                         ],
                     },
                     pre_build: {
@@ -359,6 +377,11 @@ export class PipelineStack extends Stack {
             },
             environmentVariables: {
                 YARN_ENABLE_IMMUTABLE_INSTALLS: {value: 'false'},
+                RUSTC_WRAPPER: {value: '/usr/local/cargo/bin/sccache'},
+                SCCACHE_DIR: {value: '/codebuild/sccache'},
+                SCCACHE_BUCKET: {value: this.artifactsBucket.bucketName},
+                AWS_DEFAULT_REGION: {value: config.region},
+                ...(stageConfig.testAssumeRoleArn ? {TEST_ASSUME_ROLE_ARN: {value: stageConfig.testAssumeRoleArn}} : {}),
             },
             buildSpec: this.createTestBuildSpec(config, testType, stageConfig),
             timeout: Duration.hours(1),
@@ -374,11 +397,6 @@ export class PipelineStack extends Stack {
                         nodejs: config.buildSpec.nodeVersion,
                     },
                     commands: [
-                        // Install Docker for building custom images
-                        'yum update -y',
-                        'amazon-linux-extras install docker -y',
-                        'service docker start',
-                        'usermod -a -G docker codebuild-user || true',
                         'echo Using custom build image with pre-installed dependencies...',
                         // Only install dependencies if not using custom image
                         ...(this.customImageStack ? [] : [
@@ -388,8 +406,6 @@ export class PipelineStack extends Stack {
                             `rustup install ${config.buildSpec.rustVersion}`,
                             `rustup default ${config.buildSpec.rustVersion}`,
                             'rustup target add aarch64-unknown-linux-gnu',
-                            'corepack enable',
-                            'corepack prepare yarn@4.9.2 --activate',
                             'echo System dependencies installed',
                         ]),
                     ],
@@ -447,13 +463,8 @@ export class PipelineStack extends Stack {
                         nodejs: config.buildSpec.nodeVersion,
                     },
                     commands: [
-                        // Install Docker for building custom images
-                        'yum update -y',
-                        'amazon-linux-extras install docker -y',
-                        'service docker start',
-                        'usermod -a -G docker codebuild-user || true',
-                        'corepack enable',
-                        'corepack prepare yarn@4.9.2 --activate',
+                        // Corepack and Yarn are pre-configured in custom image
+                        'echo "Using pre-configured Yarn from custom image"',
                     ],
                 },
                 pre_build: {
@@ -484,18 +495,14 @@ export class PipelineStack extends Stack {
         });
     }
 
-    private createTestBuildSpec(config: PipelineConfig, testType?: 'integ' | 'e2e', stageConfig?: StageConfig): BuildSpec {
+    private createTestBuildSpec(config: PipelineConfig, testType: 'integ' | 'e2e', stageConfig: StageConfig): BuildSpec {
         const commands = testType === 'integ'
             ? [
                 'yarn pipeline:test:integ',
             ]
-            : testType === 'e2e'
-                ? [
-                    'yarn pipeline:test:e2e',
-                ]
-                : [
-                    'yarn pipeline:test:unit',
-                ];
+            : [
+                'yarn pipeline:test:e2e',
+            ];
 
         return BuildSpec.fromObject({
             version: '0.2',
@@ -525,32 +532,65 @@ export class PipelineStack extends Stack {
                 pre_build: {
                     commands: [
                         'yarn install',
+                        // Fetch CDK stack outputs for API endpoints (only for E2E tests)
+                        ...(testType === 'e2e' ? [
+                            `STACK_NAME="ApiStack-${stageConfig.name}"`,
+                            'echo "Fetching outputs for stack: $STACK_NAME"',
+                            'OUTPUTS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs" --output json 2>/dev/null || echo "null")',
+                            'if [ "$OUTPUTS" != "null" ] && [ "$OUTPUTS" != "" ]; then',
+                            '  API_URL=$(echo "$OUTPUTS" | jq -r \'.[] | select(.OutputKey=="ApiEndpoint") | .OutputValue\' 2>/dev/null || echo "")',
+                            '  HEALTH_URL=$(echo "$OUTPUTS" | jq -r \'.[] | select(.OutputKey=="HealthCheckEndpoint") | .OutputValue\' 2>/dev/null || echo "")',
+                            '  DOMAIN=$(echo "$OUTPUTS" | jq -r \'.[] | select(.OutputKey=="Domain") | .OutputValue\' 2>/dev/null || echo "")',
+                            'else',
+                            '  echo "Warning: Could not fetch CloudFormation outputs, tests may fail"',
+                            '  # Cannot construct API URL without CloudFormation outputs',
+                            '  API_URL=""',
+                            '  HEALTH_URL=""',
+                            '  DOMAIN="' + stageConfig.domain + '"',
+                            'fi',
+                            'echo "API_URL=$API_URL"',
+                            'echo "HEALTH_URL=$HEALTH_URL"',
+                            'echo "DOMAIN=$DOMAIN"',
+                        ] : []),
                     ],
                 },
                 build: {
                     commands: [
-                        'echo Build phase...',
-                        'yarn pipeline:build:types',
-                        'yarn pipeline:build:backend',
-                        'yarn pipeline:cdk:build',
+                        // Export environment variables for tests
+                        ...(testType === 'e2e' ? [
+                            'export API_URL="$API_URL"',
+                            'export HEALTH_URL="$HEALTH_URL"',
+                            'export BASE_URL="$TEST_BASE_URL"',
+                            'export STAGE="' + stageConfig.name + '"',
+                            'echo "=== Test Environment Variables ==="',
+                            'echo "API_URL: $API_URL"',
+                            'echo "HEALTH_URL: $HEALTH_URL"',
+                            'echo "BASE_URL: $BASE_URL"',
+                            'echo "STAGE: $STAGE"',
+                            'echo "==================================="',
+                        ] : []),
                         // Optional cross-account assume role for tests if provided via env
                         'if [ -n "$TEST_ASSUME_ROLE_ARN" ]; then echo "Assuming test role..."; CREDS=$(aws sts assume-role --role-arn "$TEST_ASSUME_ROLE_ARN" --role-session-name test-session); export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r .Credentials.AccessKeyId); export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r .Credentials.SecretAccessKey); export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r .Credentials.SessionToken); fi',
                         'echo Running tests...',
-                        'yarn pipeline:test:integ',
-                        'yarn pipeline:test:e2e',
+                        testType === 'integ' ? 'yarn pipeline:test:integ' : 'yarn pipeline:test:e2e',
                     ],
                 },
             },
             env: {
                 variables: {
-                    TEST_TARGET_STAGE: stageConfig?.name || 'beta',
-                    TEST_BASE_URL: stageConfig ? `https://${stageConfig.domain}` : 'https://beta.swflcoders.jknott.dev',
+                    TEST_TARGET_STAGE: stageConfig.name,
+                    TEST_BASE_URL: `https://${stageConfig.domain}`,
                     ...(testType === 'e2e' && {
                         PLAYWRIGHT_BROWSERS_PATH: '$HOME/.cache/ms-playwright',
                     }),
                 },
             },
-            // No artifacts for test steps (avoid upload failures when no files exist)
+            artifacts: {
+                files: [
+                    'test-results/**/*',
+                    'test-reports/**/*',
+                ],
+            },
         });
     }
 }

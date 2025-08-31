@@ -29,6 +29,11 @@ export default function RootLayout() {
         if (interLoaded || interError) {
             // Hide the splash screen after the fonts have loaded (or an error was returned) and the UI is ready.
             SplashScreen.hideAsync()
+
+            // Set document title for testing
+            if (typeof document !== 'undefined') {
+                document.title = 'Swflcoders Chat';
+            }
         }
     }, [interLoaded, interError])
 
