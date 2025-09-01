@@ -1,22 +1,13 @@
-import {Stack, StackProps, RemovalPolicy, Duration} from 'aws-cdk-lib';
-import {Pipeline, Artifact} from 'aws-cdk-lib/aws-codepipeline';
-import {
-    CodeStarConnectionsSourceAction,
-    CodeBuildAction,
-    ManualApprovalAction
-} from 'aws-cdk-lib/aws-codepipeline-actions';
-import {
-    Project,
-    BuildSpec,
-    ComputeType,
-    Cache,
-    LocalCacheMode, LinuxArmBuildImage,
-} from 'aws-cdk-lib/aws-codebuild';
-import {Role, ServicePrincipal, PolicyStatement, Effect, PolicyDocument} from 'aws-cdk-lib/aws-iam';
+import {Stack, StackProps, RemovalPolicy, Duration, Stage as CdkStage} from 'aws-cdk-lib';
+import {Pipeline as CpPipeline, PipelineType} from 'aws-cdk-lib/aws-codepipeline';
+import {BuildSpec, Cache, ComputeType, LinuxArmBuildImage, Project} from 'aws-cdk-lib/aws-codebuild';
+import {Effect, PolicyDocument, PolicyStatement, Role, ServicePrincipal} from 'aws-cdk-lib/aws-iam';
 import {Bucket} from 'aws-cdk-lib/aws-s3';
 import {Construct} from 'constructs';
 import {PipelineConfig, StageConfig} from '../config';
 import {CustomImageStack} from './custom-image-stack';
+import {CodePipeline, CodePipelineSource, CodeBuildStep, ManualApprovalStep} from 'aws-cdk-lib/pipelines';
+import {registerAppStacks} from '../stacks';
 
 export interface PipelineStackProps extends StackProps {
     pipelineConfig: PipelineConfig;
@@ -24,8 +15,17 @@ export interface PipelineStackProps extends StackProps {
     customImageStack: CustomImageStack;
 }
 
+class ApplicationStage extends CdkStage {
+    constructor(scope: Construct, id: string, stageConfig: StageConfig) {
+        super(scope, id, {
+            env: { account: stageConfig.account, region: stageConfig.region },
+        });
+        registerAppStacks(this, stageConfig);
+    }
+}
+
 export class PipelineStack extends Stack {
-    public readonly pipeline: Pipeline;
+    public readonly pipeline: CodePipeline;
     private readonly customImageStack: CustomImageStack;
     private readonly artifactsBucket: Bucket;
 
@@ -87,129 +87,108 @@ export class PipelineStack extends Stack {
             },
         });
 
-        // Source artifacts
-        const sourceOutput = new Artifact();
-
-        // Build artifacts
-        const buildOutput = new Artifact();
-
-        // Test artifacts (will be created per stage)
-        const testOutputs: { [key: string]: { integ: Artifact; e2e: Artifact } } = {};
-
         // Sort stages by deploy order
         const sortedStages = stages.sort((a, b) => a.deployOrder - b.deployOrder);
 
-        // CDK deploy artifacts for each stage
-        const deployOutputs: { [key: string]: Artifact } = {};
-
-        // Create the main pipeline
-        this.pipeline = new Pipeline(this, 'SwflcodersPipeline', {
-            pipelineName: 'swflcoders-main-pipeline',
-            artifactBucket: this.artifactsBucket,
-            stages: [
-                // Source stage
-                {
-                    stageName: 'Source',
-                    actions: [
-                        new CodeStarConnectionsSourceAction({
-                            actionName: 'GitHubSource',
-                            owner: pipelineConfig.github.owner,
-                            repo: pipelineConfig.github.repo,
-                            branch: pipelineConfig.github.branch,
-                            connectionArn: pipelineConfig.github.connectionArn,
-                            output: sourceOutput,
-                        }),
-                    ],
-                },
-
-                // Build stage
-                {
-                    stageName: 'Build',
-                    actions: [
-                        new CodeBuildAction({
-                            actionName: 'BuildApp',
-                            project: this.createBuildProject('BuildProject', pipelineConfig, codeBuildRole, 'build', sortedStages[0]),
-                            input: sourceOutput,
-                            outputs: [buildOutput],
-                        }),
-                    ],
-                },
-
-                // Self-mutate pipeline (deploy/update nt-pipeline itself)
-                {
-                    stageName: 'UpdatePipeline',
-                    actions: [
-                        new CodeBuildAction({
-                            actionName: 'SelfMutate',
-                            project: this.createSelfMutateProject('SelfMutateProject', pipelineConfig, codeBuildRole),
-                            input: buildOutput,
-                            runOrder: 1,
-                        }),
-                    ],
-                },
-
-                // Dynamically create deploy and test stages for each stage
-                ...sortedStages.flatMap((stageConfig, index) => {
-                    const stageName = stageConfig.name;
-                    const capitalizedStageName = stageName.charAt(0).toUpperCase() + stageName.slice(1);
-                    const deployOutput = new Artifact();
-                    deployOutputs[stageName] = deployOutput;
-
-                    const pipelineStages: any[] = [];
-
-                    // Deploy stage
-                    pipelineStages.push({
-                        stageName: `Deploy${capitalizedStageName}`,
-                        actions: [
-                            new CodeBuildAction({
-                                actionName: `CDKDeploy${capitalizedStageName}`,
-                                project: this.createDeployProject(`Deploy${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, stageConfig),
-                                input: buildOutput,
-                                outputs: [deployOutput],
-                            }),
+        // Synthesize once with our custom image via a CodeBuild step and reuse outputs
+        const synthStep = new CodeBuildStep('Synth', {
+            input: CodePipelineSource.connection(
+                `${pipelineConfig.github.owner}/${pipelineConfig.github.repo}`,
+                pipelineConfig.github.branch,
+                { connectionArn: pipelineConfig.github.connectionArn },
+            ),
+            projectName: 'PipelineSynth',
+            partialBuildSpec: BuildSpec.fromObject({
+                version: '0.2',
+                phases: {
+                    install: {
+                        'runtime-versions': { nodejs: pipelineConfig.buildSpec.nodeVersion },
+                        commands: [
+                            'echo "Using pre-configured Yarn from custom image"',
                         ],
-                    });
-
-                    const integTestOutput = new Artifact();
-                    const e2eTestOutput = new Artifact();
-                    testOutputs[stageName] = { integ: integTestOutput, e2e: e2eTestOutput };
-
-                    pipelineStages.push({
-                        stageName: `Test${capitalizedStageName}`,
-                        actions: [
-                            new CodeBuildAction({
-                                actionName: `IntegrationTests${capitalizedStageName}`,
-                                project: this.createTestProject(`IntegTest${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, 'integ', stageConfig),
-                                input: buildOutput,
-                                outputs: [integTestOutput],
-                            }),
-                            new CodeBuildAction({
-                                actionName: `E2ETests${capitalizedStageName}`,
-                                project: this.createTestProject(`E2ETest${capitalizedStageName}Project`, pipelineConfig, codeBuildRole, 'e2e', stageConfig),
-                                input: buildOutput,
-                                outputs: [e2eTestOutput],
-                                runOrder: 2,
-                            }),
-                        ],
-                    });
-
-                    // Manual approval stage (only for production stages)
-                    if (!stageConfig.isProd) {
-                        pipelineStages.push({
-                            stageName: `Approve${capitalizedStageName}`,
-                            actions: [
-                                new ManualApprovalAction({
-                                    actionName: `Approve${capitalizedStageName}Deployment`,
-                                    additionalInformation: `Review previous tests and approve deployment to ${stageName} environment`,
-                                }),
-                            ],
-                        });
-                    }
-
-                    return pipelineStages;
-                }),
+                    },
+                },
+            }),
+            buildEnvironment: {
+                buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
+                computeType: ComputeType.LARGE,
+            },
+            env: {
+                AWS_DEFAULT_REGION: pipelineConfig.region,
+                YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+            },
+            commands: [
+                'yarn install',
+                'yarn pipeline:build:types',
+                'yarn pipeline:build:backend',
+                'yarn pipeline:cdk:build',
             ],
+            primaryOutputDirectory: 'packages/cdk/cdk.out',
         });
+
+        const underlying = new CpPipeline(this, 'SwflcodersPipeline', {
+            pipelineName: 'swflcoders-main-pipeline',
+            crossAccountKeys: true,
+            pipelineType: PipelineType.V2,
+        });
+
+        this.pipeline = new CodePipeline(this, 'SwflcodersCdkPipeline', {
+            codePipeline: underlying,
+            synth: synthStep,
+            dockerEnabledForSynth: false,
+            codeBuildDefaults: {
+                rolePolicy: [
+                    new PolicyStatement({
+                        effect: Effect.ALLOW,
+                        actions: ['sts:AssumeRole'],
+                        resources: ['*'],
+                    }),
+                ],
+            },
+        });
+
+        // Add application stages and post-deploy tests
+        for (const stageConfig of sortedStages) {
+            const appStage = new ApplicationStage(this, `${stageConfig.name}`, stageConfig);
+            const preSteps = stageConfig.isProd ? [new ManualApprovalStep(`Approve-${stageConfig.name}`)] : [];
+            const stageDeployment = this.pipeline.addStage(appStage, { pre: preSteps });
+
+            // After deployment, run tests
+            stageDeployment.addPost(new CodeBuildStep(`${stageConfig.name}-integ-tests`, {
+                buildEnvironment: {
+                    buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
+                    computeType: ComputeType.LARGE,
+                },
+                env: {
+                    TEST_TARGET_STAGE: stageConfig.name,
+                    TEST_BASE_URL: `https://${stageConfig.domain}`,
+                    AWS_DEFAULT_REGION: pipelineConfig.region,
+                    YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+                },
+                commands: [
+                    'yarn install',
+                    'yarn pipeline:test:integ',
+                ],
+            }));
+            stageDeployment.addPost(new CodeBuildStep(`${stageConfig.name}-e2e-tests`, {
+                buildEnvironment: {
+                    buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
+                    computeType: ComputeType.LARGE,
+                },
+                env: {
+                    TEST_TARGET_STAGE: stageConfig.name,
+                    TEST_BASE_URL: `https://${stageConfig.domain}`,
+                    AWS_DEFAULT_REGION: pipelineConfig.region,
+                    YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+                },
+                commands: [
+                    'yarn install',
+                    'npx playwright install',
+                    'npx playwright install-deps || true',
+                    'yarn pipeline:test:e2e',
+                ],
+            }));
+        }
     }
 
     private createBuildProject(
@@ -223,15 +202,10 @@ export class PipelineStack extends Stack {
             ? this.createBuildSpec(config)
             : this.createTestBuildSpec(config, buildType as 'integ' | 'e2e', stageConfigForTests!);
 
-        // Use custom image if available, otherwise fall back to standard image
-        const buildImage = this.customImageStack
-            ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-            : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0
-
         return new Project(this, id, {
             role,
             environment: {
-                buildImage,
+                buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
                 computeType: ComputeType.LARGE,
             },
             environmentVariables: {
@@ -249,9 +223,7 @@ export class PipelineStack extends Stack {
         return new Project(this, id, {
             role,
             environment: {
-                buildImage: this.customImageStack
-                    ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-                    : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
+                buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
                 computeType: ComputeType.MEDIUM,
             },
             environmentVariables: {
@@ -268,9 +240,7 @@ export class PipelineStack extends Stack {
         return new Project(this, id, {
             role,
             environment: {
-                buildImage: this.customImageStack
-                    ? LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri)
-                    : LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
+                buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
                 computeType: ComputeType.MEDIUM,
                 privileged: true,
             },
@@ -350,16 +320,6 @@ export class PipelineStack extends Stack {
                     },
                     commands: [
                         'echo Using custom build image with pre-installed dependencies...',
-                        // Only install dependencies if not using custom image
-                        ...(this.customImageStack ? [] : [
-                            'echo Installing system dependencies...',
-                            'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y',
-                            '. $HOME/.cargo/env',
-                            `rustup install ${config.buildSpec.rustVersion}`,
-                            `rustup default ${config.buildSpec.rustVersion}`,
-                            'rustup target add aarch64-unknown-linux-gnu',
-                            'echo System dependencies installed',
-                        ]),
                     ],
                 },
                 pre_build: {
@@ -389,6 +349,7 @@ export class PipelineStack extends Stack {
                     'packages/backend/target/lambda/**/*',
                     'packages/cdk/cdk.out/**/*',
                     'packages/cdk/cdk.out.pipeline/**/*',
+                    'packages/frontend/dist/**/*',
                 ],
                 'exclude-paths': [
                     'node_modules/**/*',
@@ -465,15 +426,6 @@ export class PipelineStack extends Stack {
                     },
                     commands: [
                         'echo Using custom build image with pre-installed dependencies...',
-                        // Only install dependencies if not using custom image
-                        ...(this.customImageStack ? [] : [
-                            'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y',
-                            '. $HOME/.cargo/env',
-                            `rustup install ${config.buildSpec.rustVersion}`,
-                            `rustup default ${config.buildSpec.rustVersion}`,
-                            'corepack enable',
-                            'corepack prepare yarn@4.9.2 --activate',
-                        ]),
                         // Install Playwright browsers for E2E tests (always needed)
                         ...(testType === 'e2e' ? [
                             'npx playwright install',
@@ -509,18 +461,16 @@ export class PipelineStack extends Stack {
                 build: {
                     commands: [
                         // Export environment variables for tests
-                        ...(testType === 'e2e' ? [
-                            'export API_URL="$API_URL"',
-                            'export HEALTH_URL="$HEALTH_URL"',
-                            'export BASE_URL="$TEST_BASE_URL"',
-                            'export STAGE="' + stageConfig.name + '"',
-                            'echo "=== Test Environment Variables ==="',
-                            'echo "API_URL: $API_URL"',
-                            'echo "HEALTH_URL: $HEALTH_URL"',
-                            'echo "BASE_URL: $BASE_URL"',
-                            'echo "STAGE: $STAGE"',
-                            'echo "==================================="',
-                        ] : []),
+                        'export API_URL="$API_URL"',
+                        'export HEALTH_URL="$HEALTH_URL"',
+                        'export BASE_URL="$TEST_BASE_URL"',
+                        'export STAGE="' + stageConfig.name + '"',
+                        'echo "=== Test Environment Variables ==="',
+                        'echo "API_URL: $API_URL"',
+                        'echo "HEALTH_URL: $HEALTH_URL"',
+                        'echo "BASE_URL: $BASE_URL"',
+                        'echo "STAGE: $STAGE"',
+                        'echo "==================================="',
                         // Optional cross-account assume role for tests if provided via env
                         'if [ -n "$TEST_ASSUME_ROLE_ARN" ]; then echo "Assuming test role..."; CREDS=$(aws sts assume-role --role-arn "$TEST_ASSUME_ROLE_ARN" --role-session-name test-session); export AWS_ACCESS_KEY_ID=$(echo $CREDS | jq -r .Credentials.AccessKeyId); export AWS_SECRET_ACCESS_KEY=$(echo $CREDS | jq -r .Credentials.SecretAccessKey); export AWS_SESSION_TOKEN=$(echo $CREDS | jq -r .Credentials.SessionToken); fi',
                         'echo Running tests...',
@@ -532,9 +482,7 @@ export class PipelineStack extends Stack {
                 variables: {
                     TEST_TARGET_STAGE: stageConfig.name,
                     TEST_BASE_URL: `https://${stageConfig.domain}`,
-                    ...(testType === 'e2e' && {
-                        PLAYWRIGHT_BROWSERS_PATH: '$HOME/.cache/ms-playwright',
-                    }),
+                    PLAYWRIGHT_BROWSERS_PATH: '$HOME/.cache/ms-playwright',
                 },
             },
             artifacts: {

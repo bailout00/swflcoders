@@ -1,14 +1,16 @@
 import * as cdk from 'aws-cdk-lib';
+import { Construct } from 'constructs';
 import { StageConfig } from '../config';
 import { ApiStack } from './api-stack';
 import { CloudwatchDashboardStack } from './cloudwatch-dashboard-stack';
 import { BucketStack } from './bucket-stack';
 import { WebsiteStack } from './website-stack';
 import { DnsStack } from './dns-stack';
+import { DbStack } from './db-stack';
 
-export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
+export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
   // DNS stack should be deployed first as it's referenced by other stacks
-  const dnsStack = new DnsStack(app, `dns-${stageConfig.name}`, {
+  const dnsStack = new DnsStack(scope, `dns-${stageConfig.name}`, {
     env: {
       account: stageConfig.account,
       region: stageConfig.region,
@@ -17,7 +19,7 @@ export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
   });
 
   // Bucket stack should be deployed second as it's referenced by other stacks
-  const bucketStack = new BucketStack(app, `bucket-${stageConfig.name}`, {
+  const bucketStack = new BucketStack(scope, `bucket-${stageConfig.name}`, {
     env: {
       account: stageConfig.account,
       region: stageConfig.region,
@@ -25,7 +27,8 @@ export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
     stageConfig,
   });
 
-  new ApiStack(app, `api-${stageConfig.name}`, {
+  // Database stack should be deployed before API stack
+  const dbStack = new DbStack(scope, `db-${stageConfig.name}`, {
     env: {
       account: stageConfig.account,
       region: stageConfig.region,
@@ -33,7 +36,16 @@ export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
     stageConfig,
   });
 
-  new CloudwatchDashboardStack(app, `monitoring-${stageConfig.name}`, {
+  new ApiStack(scope, `api-${stageConfig.name}`, {
+    env: {
+      account: stageConfig.account,
+      region: stageConfig.region,
+    },
+    stageConfig,
+    dbStack,
+  });
+
+  new CloudwatchDashboardStack(scope, `monitoring-${stageConfig.name}`, {
     env: {
       account: stageConfig.account,
       region: stageConfig.region,
@@ -42,7 +54,7 @@ export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
   });
 
   // Website stack depends on bucket stack and DNS stack
-  new WebsiteStack(app, `web-${stageConfig.name}`, {
+  new WebsiteStack(scope, `web-${stageConfig.name}`, {
     env: {
       account: stageConfig.account,
       region: stageConfig.region,
@@ -54,6 +66,6 @@ export function registerAppStacks(app: cdk.App, stageConfig: StageConfig) {
     originAccessIdentity: bucketStack.originAccessIdentity,
   });
 
-  // Add future stacks here (e.g., DynamoDBStack, AuthStack, etc.)
-  // new DynamoDbStack(app, `DynamoDbStack-${stageConfig.name}`, { env: {account: stageConfig.account, region: stageConfig.region}, stageConfig });
+  // Add future stacks here (e.g., AuthStack, etc.)
+  // new AuthStack(scope, `AuthStack-${stageConfig.name}`, { env: {account: stageConfig.account, region: stageConfig.region}, stageConfig });
 }

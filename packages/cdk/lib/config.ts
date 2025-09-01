@@ -16,7 +16,7 @@ export interface StageConfig {
 const ROOT_DOMAIN = 'swflcoders.jknott.dev';
 const PIPELINE_ACCOUNT = '716448722050';  // CodePipeline account
 const BETA_ACCOUNT = '923880387537';
-const GAMMA_ACCOUNT = '405708126964';  // Separate account for gamma/staging
+const GAMMA_ACCOUNT = '898683284338';  // Separate account for gamma/staging
 const PROD_ACCOUNT = '312370645428';   // Separate account for production
 
 export const stages: StageConfig[] = [

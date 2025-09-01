@@ -2,81 +2,28 @@ import * as cdk from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigateway';
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
-import * as cr from 'aws-cdk-lib/custom-resources';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import { StageConfig } from '../config';
+import { DbStack } from './db-stack';
 
 export interface SwflcodersStackProps extends cdk.StackProps {
   stageConfig: StageConfig;
+  dbStack: DbStack;
 }
 
 export class ApiStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: SwflcodersStackProps) {
     super(scope, id, props);
 
-    const { stageConfig } = props;
-    const isProd = stageConfig.environment === 'prod';
+    const { stageConfig, dbStack } = props;
 
-    // === DynamoDB Tables ===
-    
-    // Chat Rooms Table
-    const chatRoomsTable = new dynamodb.Table(this, 'ChatRoomsTable', {
-      tableName: `chat-rooms-${stageConfig.name}`,
-      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
-
-    // Chat Messages Table (with DynamoDB Streams for real-time broadcasting)
-    const chatMessagesTable = new dynamodb.Table(this, 'ChatMessagesTable', {
-      tableName: `chat-messages-${stageConfig.name}`,
-      partitionKey: { name: 'room_id', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'ts', type: dynamodb.AttributeType.NUMBER },
-      stream: dynamodb.StreamViewType.NEW_IMAGE,
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
-
-    // Chat Connections Table (for WebSocket client management)
-    const chatConnectionsTable = new dynamodb.Table(this, 'ChatConnectionsTable', {
-      tableName: `chat-connections-${stageConfig.name}`,
-      partitionKey: { name: 'connection_id', type: dynamodb.AttributeType.STRING },
-      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-      // TTL for automatic cleanup of old connections
-      timeToLiveAttribute: 'ttl',
-    });
-
-    // Add GSI for querying connections by room
-    chatConnectionsTable.addGlobalSecondaryIndex({
-      indexName: 'room-index',
-      partitionKey: { name: 'room_id', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'connected_at', type: dynamodb.AttributeType.NUMBER },
-    });
-
-    // Seed default "general" room on deployment
-    new cr.AwsCustomResource(this, 'SeedGeneralRoom', {
-      onCreate: {
-        service: 'DynamoDB',
-        action: 'putItem',
-        parameters: {
-          TableName: chatRoomsTable.tableName,
-          Item: {
-            id: { S: 'general' },
-            name: { S: 'General' },
-            created_at_iso: { S: new Date().toISOString() },
-            created_at_epoch: { N: `${Date.now()}` },
-          },
-          ConditionExpression: 'attribute_not_exists(id)',
-        },
-        physicalResourceId: cr.PhysicalResourceId.of(`SeedGeneralRoom-${stageConfig.name}`),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromSdkCalls({ resources: [chatRoomsTable.tableArn] }),
-    });
+    // Get tables from DbStack
+    const chatRoomsTable = dbStack.chatRoomsTable;
+    const chatMessagesTable = dbStack.chatMessagesTable;
+    const chatConnectionsTable = dbStack.chatConnectionsTable;
 
     // === Lambda Functions ===
 
@@ -284,21 +231,7 @@ export class ApiStack extends cdk.Stack {
       description: 'Configured domain',
     });
 
-    // DynamoDB table outputs
-    new cdk.CfnOutput(this, 'ChatRoomsTableName', {
-      value: chatRoomsTable.tableName,
-      description: 'Chat rooms DynamoDB table name',
-    });
 
-    new cdk.CfnOutput(this, 'ChatMessagesTableName', {
-      value: chatMessagesTable.tableName,
-      description: 'Chat messages DynamoDB table name',
-    });
-
-    new cdk.CfnOutput(this, 'ChatConnectionsTableName', {
-      value: chatConnectionsTable.tableName,
-      description: 'Chat connections DynamoDB table name',
-    });
 
     // WebSocket API outputs
     new cdk.CfnOutput(this, 'WebSocketUrl', {
