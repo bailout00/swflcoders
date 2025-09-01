@@ -1,0 +1,27 @@
+{
+    "name": "@swflcoders/integ",
+    "version": "0.1.0",
+    "private": true,
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "test": "tsx test/chat-integration.test.ts",
+        "build": "echo 'No build needed for integration tests'",
+        "dev": "yarn test",
+        "clean": "rm -rf node_modules/",
+        "type-check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@swflcoders/types": "workspace:*",
+        "aws-sdk": "^2.1690.0",
+        "axios": "^1.6.0",
+        "uuid": "^9.0.1"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "@types/uuid": "^9.0.8",
+        "tsx": "^4.7.0",
+        "typescript": "^5.0.0"
+    }
+}
