@@ -120,6 +120,9 @@ export class PipelineStack extends Stack {
             },
                                 commands: [
                 'yarn install',
+                'cd app/frontend',
+                'yarn install',
+                'cd ../..',
                 'yarn build',
             ],
             primaryOutputDirectory: 'packages/cdk/cdk.out',
