@@ -1,42 +1,53 @@
 {
-  "name": "swflcoders",
-  "version": "0.1.0",
-  "private": true,
-  "packageManager": "yarn@4.9.3",
-  "workspaces": [
-    "packages/*",
-    "apps/*"
-  ],
-  "scripts": {
-    "build": "echo 'Building all packages...' && (yarn run pipeline:build:types || echo '⚠️  Types build failed, continuing...') && echo 'Building backend...' && yarn workspace @swflcoders/backend run build:pipeline && echo 'Building frontend...' && yarn workspace @swflcoders/frontend run build && echo 'Building CDK...' && yarn workspace @swflcoders/cdk run build",
-    "build:types": "yarn workspace @swflcoders/types build",
-    "dev": "yarn workspaces foreach --all --parallel run dev",
-    "test": "yarn workspaces foreach --all run test",
-    "test:e2e": "yarn workspace @swflcoders/e2e test",
-    "deploy:beta": "yarn workspace @swflcoders/cdk deploy:beta",
-    "deploy:gamma": "yarn workspace @swflcoders/cdk deploy:gamma",
-    "deploy:prod": "yarn workspace @swflcoders/cdk deploy:prod",
-    "deploy:pipeline": "yarn workspace @swflcoders/cdk deploy",
-    "lint": "yarn workspaces foreach --all run lint",
-    "clean": "yarn workspaces foreach --all run clean || true && rm -rf node_modules/ yarn.lock .pnp.* .yarn/install-state.gz .yarn/cache",
-    "type-check": "yarn workspaces foreach --all run type-check",
-    "pipeline:build:types": "yarn workspace @swflcoders/types build:pipeline",
-    "pipeline:build:backend": "yarn workspace @swflcoders/backend build:pipeline",
-    "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build",
-    "pipeline:test:unit": "yarn workspaces foreach --all run test",
-    "pipeline:test:integ": "echo 'Running integration tests...' && yarn pipeline:test:unit",
-    "pipeline:test:e2e": "echo 'Running E2E tests...' && yarn workspace @swflcoders/e2e test"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.34.0",
-    "@types/node": "^22.0.0",
-    "eslint": "^9.34.0",
-    "globals": "^16.3.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0",
-    "typescript-eslint": "^8.41.0"
-  },
-  "engines": {
-    "node": ">=22.0.0"
-  }
+    "name": "swflcoders",
+    "version": "0.1.0",
+    "private": true,
+    "packageManager": "yarn@4.9.3",
+    "workspaces": [
+        "packages/*",
+        "apps/*"
+    ],
+    "scripts": {
+        "build": "echo 'Building all packages...' && (yarn run pipeline:build:types || echo '⚠️  Types build failed, continuing...') && echo 'Building backend...' && yarn workspace @swflcoders/backend run build:pipeline && echo 'Building frontend...' && yarn workspace @swflcoders/frontend run build && echo 'Building CDK...' && yarn workspace @swflcoders/cdk run build",
+        "build:types": "yarn workspace @swflcoders/types build",
+        "dev": "yarn workspaces foreach --all --parallel run dev",
+        "test": "yarn workspaces foreach --all run test",
+        "test:e2e": "yarn workspace @swflcoders/e2e test",
+        "deploy:beta": "yarn workspace @swflcoders/cdk deploy:beta",
+        "deploy:gamma": "yarn workspace @swflcoders/cdk deploy:gamma",
+        "deploy:prod": "yarn workspace @swflcoders/cdk deploy:prod",
+        "deploy:pipeline": "yarn workspace @swflcoders/cdk deploy",
+        "lint": "biome check .",
+        "lint:fix": "biome check --write .",
+        "format": "biome format --write .",
+        "clean": "yarn workspaces foreach --all run clean || true && rm -rf node_modules/ yarn.lock .pnp.* .yarn/install-state.gz .yarn/cache",
+        "type-check": "yarn workspaces foreach --all run type-check",
+        "pipeline:build:types": "yarn workspace @swflcoders/types build:pipeline",
+        "pipeline:build:backend": "yarn workspace @swflcoders/backend build:pipeline",
+        "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build",
+        "pipeline:test:unit": "yarn workspaces foreach --all run test",
+        "pipeline:test:integ": "echo 'Running integration tests...' && yarn pipeline:test:unit",
+        "pipeline:test:e2e": "echo 'Running E2E tests...' && yarn workspace @swflcoders/e2e test",
+        "prepare": "husky"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.2.2",
+        "@types/node": "^22.0.0",
+        "husky": "^9.1.7",
+        "lint-staged": "^16.1.6",
+        "ts-node": "^10.9.0",
+        "typescript": "^5.0.0"
+    },
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "lint-staged": {
+        "*.{js,jsx,ts,tsx,json,css,md}": [
+            "biome check --write --no-errors-on-unmatched",
+            "biome format --write --no-errors-on-unmatched"
+        ],
+        "*.rs": [
+            "cargo fmt"
+        ]
+    }
 }

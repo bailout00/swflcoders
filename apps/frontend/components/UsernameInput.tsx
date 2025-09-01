@@ -1,9 +1,9 @@
-import {useState} from 'react'
-import {Button, Input, YStack, Text, H3} from 'tamagui'
-import {useUserStore} from '../stores/userStore'
+import { useState } from 'react'
+import { Button, Input, YStack, Text, H3 } from 'tamagui'
+import { useUserStore } from '../stores/userStore'
 
 export default function UsernameInput() {
-    console.log('test');
+    console.log('test')
     const [inputValue, setInputValue] = useState('')
     const [error, setError] = useState('')
     const [isLoading, setIsLoading] = useState(false)
@@ -79,7 +79,7 @@ export default function UsernameInput() {
                     backgroundColor={isLoading ? '$gray8' : '$blue10'}
                     color="white"
                     size="$4"
-                    pressStyle={{scale: 0.97}}
+                    pressStyle={{ scale: 0.97 }}
                     testID="username-submit-button"
                     cursor="pointer"
                 >

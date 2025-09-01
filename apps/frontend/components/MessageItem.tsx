@@ -1,11 +1,11 @@
-import {Text, XStack, YStack} from 'tamagui'
-import {Message} from '../types/chat'
+import { Text, XStack, YStack } from 'tamagui'
+import type { Message } from '../types/chat'
 
 interface MessageItemProps {
     message: Message
 }
 
-export default function MessageItem({message}: MessageItemProps) {
+export default function MessageItem({ message }: MessageItemProps) {
     const isOwnMessage = message.isOwnMessage
 
     return (
@@ -23,19 +23,11 @@ export default function MessageItem({message}: MessageItemProps) {
                 borderTopLeftRadius={isOwnMessage ? '$4' : '$1'}
             >
                 {!isOwnMessage && (
-                    <Text
-                        fontSize="$2"
-                        fontWeight="600"
-                        marginBottom="$1"
-                    >
+                    <Text fontSize="$2" fontWeight="600" marginBottom="$1">
                         {message.username}
                     </Text>
                 )}
-                <Text
-                    color={isOwnMessage ? 'white' : '$color'}
-                    fontSize="$4"
-                    lineHeight="$1"
-                >
+                <Text color={isOwnMessage ? 'white' : '$color'} fontSize="$4" lineHeight="$1">
                     {message.text}
                 </Text>
                 <Text

@@ -1,49 +1,74 @@
-import {Stack, StackProps, RemovalPolicy, Duration, Stage as CdkStage} from 'aws-cdk-lib';
-import {Pipeline as CpPipeline, PipelineType} from 'aws-cdk-lib/aws-codepipeline';
-import {BuildSpec, ComputeType, LinuxArmBuildImage} from 'aws-cdk-lib/aws-codebuild';
-import {Effect, PolicyDocument, PolicyStatement, Role, ServicePrincipal} from 'aws-cdk-lib/aws-iam';
-import {Bucket} from 'aws-cdk-lib/aws-s3';
-import {Construct} from 'constructs';
-import {PipelineConfig, StageConfig} from '../config';
-import {CustomImageStack} from './custom-image-stack';
-import {CodePipeline, CodePipelineSource, CodeBuildStep, ManualApprovalStep} from 'aws-cdk-lib/pipelines';
-import {registerAppStacks} from '../stacks';
+import { Stack, type StackProps, RemovalPolicy, Duration, Stage as CdkStage } from 'aws-cdk-lib'
+import { Pipeline as CpPipeline, PipelineType } from 'aws-cdk-lib/aws-codepipeline'
+import { BuildSpec, ComputeType, LinuxArmBuildImage } from 'aws-cdk-lib/aws-codebuild'
+import {
+    Effect,
+    PolicyDocument,
+    PolicyStatement,
+    Role,
+    ServicePrincipal,
+} from 'aws-cdk-lib/aws-iam'
+import { Bucket } from 'aws-cdk-lib/aws-s3'
+import type { Construct } from 'constructs'
+import { type PipelineConfig, type StageConfig, PROD_ACCOUNT } from '../config'
+import type { CustomImageStack } from './custom-image-stack'
+import {
+    CodePipeline,
+    CodePipelineSource,
+    CodeBuildStep,
+    ManualApprovalStep,
+} from 'aws-cdk-lib/pipelines'
+import { registerAppStacks } from '../stacks'
+import { ZoneStack } from '../stacks/zone-stack'
 
 export interface PipelineStackProps extends StackProps {
-    pipelineConfig: PipelineConfig;
-    stages: StageConfig[];
-    customImageStack: CustomImageStack;
+    pipelineConfig: PipelineConfig
+    stages: StageConfig[]
+    customImageStack: CustomImageStack
+}
+
+class ZoneStage extends CdkStage {
+    constructor(scope: Construct, id: string) {
+        super(scope, id, {
+            env: { account: PROD_ACCOUNT, region: 'us-east-1' },
+        })
+
+        // Deploy ZoneStack to production account
+        new ZoneStack(this, 'ZoneStack')
+    }
 }
 
 class ApplicationStage extends CdkStage {
     constructor(scope: Construct, id: string, stageConfig: StageConfig) {
         super(scope, id, {
             env: { account: stageConfig.account, region: stageConfig.region },
-        });
-        registerAppStacks(this, stageConfig);
+        })
+        registerAppStacks(this, stageConfig)
     }
 }
 
 export class PipelineStack extends Stack {
-    public readonly pipeline: CodePipeline;
-    private readonly customImageStack: CustomImageStack;
-    private readonly artifactsBucket: Bucket;
+    public readonly pipeline: CodePipeline
+    private readonly customImageStack: CustomImageStack
+    private readonly artifactsBucket: Bucket
 
     constructor(scope: Construct, id: string, props: PipelineStackProps) {
-        super(scope, id, props);
+        super(scope, id, props)
 
-        const {pipelineConfig, stages, customImageStack} = props;
-        this.customImageStack = customImageStack;
+        const { pipelineConfig, stages, customImageStack } = props
+        this.customImageStack = customImageStack
 
         // Create S3 bucket for pipeline artifacts
         this.artifactsBucket = new Bucket(this, 'PipelineArtifacts', {
             bucketName: `swflcoders-pipeline-artifacts-${pipelineConfig.account}`,
             removalPolicy: RemovalPolicy.DESTROY,
-            lifecycleRules: [{
-                id: 'delete-old-artifacts',
-                expiration: Duration.days(30),
-            }],
-        });
+            lifecycleRules: [
+                {
+                    id: 'delete-old-artifacts',
+                    expiration: Duration.days(30),
+                },
+            ],
+        })
 
         // Create CodeBuild service role
         const codeBuildRole = new Role(this, 'CodeBuildRole', {
@@ -82,20 +107,28 @@ export class PipelineStack extends Stack {
                             ],
                             resources: ['*'],
                         }),
+                        // Add permission to assume DNS management roles in production
+                        new PolicyStatement({
+                            effect: Effect.ALLOW,
+                            actions: ['sts:AssumeRole'],
+                            resources: [
+                                `arn:aws:iam::${stages.find((s) => s.isProd)?.account}:role/DnsManagementRole-*`,
+                            ],
+                        }),
                     ],
                 }),
             },
-        });
+        })
 
         // Sort stages by deploy order
-        const sortedStages = stages.sort((a, b) => a.deployOrder - b.deployOrder);
+        const sortedStages = stages.sort((a, b) => a.deployOrder - b.deployOrder)
 
         // Synthesize once with our custom image via a CodeBuild step and reuse outputs
         const synthStep = new CodeBuildStep('Synth', {
             input: CodePipelineSource.connection(
                 `${pipelineConfig.github.owner}/${pipelineConfig.github.repo}`,
                 pipelineConfig.github.branch,
-                { connectionArn: pipelineConfig.github.connectionArn },
+                { connectionArn: pipelineConfig.github.connectionArn }
             ),
             projectName: 'PipelineSynth',
             role: codeBuildRole, // Use the role with ECR permissions
@@ -104,9 +137,7 @@ export class PipelineStack extends Stack {
                 phases: {
                     install: {
                         'runtime-versions': { nodejs: pipelineConfig.buildSpec.nodeVersion },
-                        commands: [
-                            'echo "Using pre-configured Yarn from custom image"',
-                        ],
+                        commands: ['echo "Using pre-configured Yarn from custom image"'],
                     },
                 },
             }),
@@ -118,7 +149,7 @@ export class PipelineStack extends Stack {
                 AWS_DEFAULT_REGION: pipelineConfig.region,
                 YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
             },
-                                commands: [
+            commands: [
                 'yarn install',
                 'cd apps/frontend',
                 'yarn install',
@@ -126,13 +157,13 @@ export class PipelineStack extends Stack {
                 'yarn build',
             ],
             primaryOutputDirectory: 'packages/cdk/cdk.out',
-        });
+        })
 
         const underlying = new CpPipeline(this, 'SwflcodersPipeline', {
             pipelineName: 'swflcoders-main-pipeline',
             crossAccountKeys: true,
             pipelineType: PipelineType.V2,
-        });
+        })
 
         this.pipeline = new CodePipeline(this, 'SwflcodersCdkPipeline', {
             codePipeline: underlying,
@@ -157,58 +188,99 @@ export class PipelineStack extends Stack {
                     }),
                 ],
             },
-        });
+        })
 
-        // Add deployment and separate test stages
+        // First, deploy the ZoneStack to production (creates root hosted zone and cross-account roles)
+        const zoneStage = new ZoneStage(this, 'zone')
+        this.pipeline.addStage(zoneStage, {
+            pre: [
+                new ManualApprovalStep('Approve-Zone-Deployment', {
+                    comment: 'Deploy root hosted zone and DNS cross-account roles to production',
+                }),
+            ],
+        })
+
+        // Add deployment, test, and approval stages in sequence
         for (const stageConfig of sortedStages) {
-            // Deploy stage with manual approval for prod
-            const appStage = new ApplicationStage(this, `${stageConfig.name}`, stageConfig);
-            const preSteps = stageConfig.isProd ? [new ManualApprovalStep(`Approve-${stageConfig.name}`)] : [];
-            const deployPipelineStage = this.pipeline.addStage(appStage, { pre: preSteps });
+            // Deploy stage
+            const appStage = new ApplicationStage(this, `${stageConfig.name}`, stageConfig)
+            this.pipeline.addStage(appStage)
 
-            // Add test actions as post-deployment steps (separate test phase within deploy stage)
-            deployPipelineStage.addPost(
-                new CodeBuildStep(`${stageConfig.name}-integ-tests`, {
-                    role: codeBuildRole, // Use the role with ECR permissions
-                    buildEnvironment: {
-                        buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
-                        computeType: ComputeType.LARGE,
-                    },
-                    env: {
-                        TEST_TARGET_STAGE: stageConfig.name,
-                        TEST_BASE_URL: `https://${stageConfig.domain}`,
-                        AWS_DEFAULT_REGION: pipelineConfig.region,
-                        YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-                    },
-                    commands: [
-                        'yarn install',
-                        'yarn pipeline:test:integ',
+            // Integration tests as a separate pipeline stage
+            const integTestStage = new CdkStage(this, `${stageConfig.name}-integ-tests-stage`)
+            // Add a dummy stack to satisfy CDK Stage requirements
+            new Stack(integTestStage, 'DummyStack', {
+                env: { account: stageConfig.account, region: stageConfig.region },
+            })
+            this.pipeline.addStage(integTestStage, {
+                pre: [
+                    new CodeBuildStep(`${stageConfig.name}-integ-tests`, {
+                        role: codeBuildRole, // Use the role with ECR permissions
+                        buildEnvironment: {
+                            buildImage: LinuxArmBuildImage.fromDockerRegistry(
+                                this.customImageStack.imageUri
+                            ),
+                            computeType: ComputeType.LARGE,
+                        },
+                        env: {
+                            TEST_TARGET_STAGE: stageConfig.name,
+                            TEST_BASE_URL: `https://${stageConfig.domain}`,
+                            AWS_DEFAULT_REGION: pipelineConfig.region,
+                            YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+                        },
+                        commands: ['yarn install', 'yarn pipeline:test:integ'],
+                    }),
+                ],
+            })
+
+            // E2E tests as a separate pipeline stage
+            const e2eTestStage = new CdkStage(this, `${stageConfig.name}-e2e-tests-stage`)
+            // Add a dummy stack to satisfy CDK Stage requirements
+            new Stack(e2eTestStage, 'DummyStack', {
+                env: { account: stageConfig.account, region: stageConfig.region },
+            })
+            this.pipeline.addStage(e2eTestStage, {
+                pre: [
+                    new CodeBuildStep(`${stageConfig.name}-e2e-tests`, {
+                        role: codeBuildRole, // Use the role with ECR permissions
+                        buildEnvironment: {
+                            buildImage: LinuxArmBuildImage.fromDockerRegistry(
+                                this.customImageStack.imageUri
+                            ),
+                            computeType: ComputeType.LARGE,
+                        },
+                        env: {
+                            TEST_TARGET_STAGE: stageConfig.name,
+                            TEST_BASE_URL: `https://${stageConfig.domain}`,
+                            AWS_DEFAULT_REGION: pipelineConfig.region,
+                            YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+                        },
+                        commands: [
+                            'yarn install',
+                            'cd packages/e2e',
+                            'npx playwright install',
+                            'npx playwright install-deps || true',
+                            'yarn test',
+                        ],
+                    }),
+                ],
+            })
+
+            // Manual approval stage (except after the last stage)
+            if (stageConfig.name !== 'prod') {
+                const approvalStage = new CdkStage(this, `${stageConfig.name}-approval-stage`)
+                // Add a dummy stack to satisfy CDK Stage requirements
+                new Stack(approvalStage, 'DummyStack', {
+                    env: { account: stageConfig.account, region: stageConfig.region },
+                })
+                this.pipeline.addStage(approvalStage, {
+                    pre: [
+                        new ManualApprovalStep(
+                            `Approve-${stageConfig.name}-to-${sortedStages[sortedStages.indexOf(stageConfig) + 1]?.name || 'next'}`
+                        ),
                     ],
                 })
-            );
-
-            deployPipelineStage.addPost(
-                new CodeBuildStep(`${stageConfig.name}-e2e-tests`, {
-                    role: codeBuildRole, // Use the role with ECR permissions
-                    buildEnvironment: {
-                        buildImage: LinuxArmBuildImage.fromDockerRegistry(this.customImageStack.imageUri),
-                        computeType: ComputeType.LARGE,
-            },
-            env: {
-                        TEST_TARGET_STAGE: stageConfig.name,
-                        TEST_BASE_URL: `https://${stageConfig.domain}`,
-                        AWS_DEFAULT_REGION: pipelineConfig.region,
-                        YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
-                    },
-                    commands: [
-                        'yarn install',
-                        'cd packages/e2e',
-                        'npx playwright install',
-                        'npx playwright install-deps || true',
-                        'yarn test',
-                    ],
-                })
-            );
+            }
         }
     }
 

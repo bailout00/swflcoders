@@ -1,8 +1,8 @@
-import {create} from 'zustand'
-import {persist, createJSONStorage} from 'zustand/middleware'
+import { create } from 'zustand'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import 'react-native-get-random-values';
-import {ulid} from 'ulid'
+import 'react-native-get-random-values'
+import { ulid } from 'ulid'
 
 interface UserState {
     userId: string | null
@@ -28,20 +28,20 @@ export const useUserStore = create<UserState>()(
             setUsername: (username: string) => {
                 const state = get()
                 const userId = state.userId || ulid()
-                console.log('Setting username:', {username, userId})
-                set({username, userId})
+                console.log('Setting username:', { username, userId })
+                set({ username, userId })
             },
             clearUser: () => {
                 console.log('Clearing user data')
 
                 // Disconnect WebSocket when user logs out
                 // Import needs to be dynamic to avoid circular dependency
-                import('./websocketStore').then(({useWebSocketStore}) => {
-                    const {disconnect} = useWebSocketStore.getState()
+                import('./websocketStore').then(({ useWebSocketStore }) => {
+                    const { disconnect } = useWebSocketStore.getState()
                     disconnect()
                 })
 
-                set({username: null, userId: null})
+                set({ username: null, userId: null })
             },
             clearUsername: () => get().clearUser(), // Backward compatibility
             isUsernameSet: () => {

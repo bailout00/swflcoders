@@ -1,0 +1,25 @@
+# Dependencies
+**/node_modules/**
+
+# Build outputs
+**/dist/**
+**/target/**
+**/cdk.out/**
+
+# Expo build artifacts
+**/_expo/**
+**/.expo/**
+
+# Tamagui generated files
+**/.tamagui/**
+
+# Test artifacts
+**/test-results/**
+**/playwright-report/**
+
+# Generated files
+**/*.generated.ts
+**/*.generated-v2.ts
+
+# Rust artifacts
+**/Cargo.lock

@@ -1,51 +1,70 @@
-import * as cdk from 'aws-cdk-lib';
-import * as route53 from 'aws-cdk-lib/aws-route53';
-import { Construct } from 'constructs';
-import { StageConfig } from '../config';
+import * as cdk from 'aws-cdk-lib'
+import * as route53 from 'aws-cdk-lib/aws-route53'
+import * as iam from 'aws-cdk-lib/aws-iam'
+import type { Construct } from 'constructs'
+import { type StageConfig, ROOT_DOMAIN, PROD_ACCOUNT } from '../config'
 
 export interface DnsStackProps extends cdk.StackProps {
-  stageConfig: StageConfig;
+    stageConfig: StageConfig
 }
 
 export class DnsStack extends cdk.Stack {
-  public readonly hostedZone: route53.HostedZone;
+    public readonly hostedZone: route53.IHostedZone
 
-  constructor(scope: Construct, id: string, props: DnsStackProps) {
-    super(scope, id, props);
+    constructor(scope: Construct, id: string, props: DnsStackProps) {
+        super(scope, id, props)
 
-    const { stageConfig } = props;
+        const { stageConfig } = props
 
-    // Use the domain directly from stage config
-    // This will be:
-    // - beta.swflcoders.jknott.dev for beta
-    // - gamma.swflcoders.jknott.dev for gamma
-    // - swflcoders.jknott.dev for prod
-    const hostedZoneDomain = stageConfig.domain;
+        // For production, use the root hosted zone directly
+        if (stageConfig.isProd) {
+            // Import the root hosted zone from the ZoneStack
+            this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'RootHostedZone', {
+                hostedZoneId: cdk.Fn.importValue('RootHostedZoneId'),
+                zoneName: ROOT_DOMAIN,
+            })
+        } else {
+            // For beta/gamma, we'll create subdomain records in the root hosted zone
+            // Assume the cross-account DNS role to access the root hosted zone
+            const dnsRoleArn = `arn:aws:iam::${PROD_ACCOUNT}:role/DnsManagementRole-${stageConfig.account}`
 
-    // Create hosted zone
-    this.hostedZone = new route53.HostedZone(this, 'HostedZone', {
-      zoneName: hostedZoneDomain,
-      comment: `Hosted zone for ${stageConfig.name} environment`,
-    });
+            // Create a role to assume the cross-account DNS role
+            const dnsAccessRole = new iam.Role(this, 'DnsAccessRole', {
+                assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'), // Or ec2.amazonaws.com based on your needs
+                description: 'Role to access DNS management in production account',
+            })
 
-    // Add basic DNS records that don't change frequently
-    // Note: We'll add more specific records (like CloudFront aliases) in other stacks
+            // Add policy to assume the cross-account DNS role
+            dnsAccessRole.addToPolicy(
+                new iam.PolicyStatement({
+                    effect: iam.Effect.ALLOW,
+                    actions: ['sts:AssumeRole'],
+                    resources: [dnsRoleArn],
+                })
+            )
 
-    // Note: If using subdomains (beta., gamma.), you may need to set up NS record delegation
-    // from the parent domain. This would typically be done manually in Route53 or through
-    // cross-account delegation depending on your AWS account structure.
+            // Import the root hosted zone from the ZoneStack
+            this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'RootHostedZone', {
+                hostedZoneId: cdk.Fn.importValue('RootHostedZoneId'),
+                zoneName: ROOT_DOMAIN,
+            })
 
-    // === Outputs ===
-    new cdk.CfnOutput(this, 'HostedZoneId', {
-      value: this.hostedZone.hostedZoneId,
-      description: 'Route53 hosted zone ID',
-      exportName: `HostedZoneId-${stageConfig.name}`,
-    });
+            // For non-prod environments, we don't create a separate hosted zone
+            // Instead, we'll create records in the root hosted zone when needed
+            // The actual record creation happens in other stacks (like WebsiteStack)
+        }
 
-    new cdk.CfnOutput(this, 'HostedZoneName', {
-      value: this.hostedZone.zoneName,
-      description: 'Route53 hosted zone name',
-      exportName: `HostedZoneName-${stageConfig.name}`,
-    });
-  }
+        // === Outputs ===
+        new cdk.CfnOutput(this, 'HostedZoneId', {
+            value: this.hostedZone.hostedZoneId,
+            description: 'Route53 hosted zone ID',
+            exportName: `HostedZoneId-${stageConfig.name}`,
+        })
+
+        new cdk.CfnOutput(this, 'HostedZoneName', {
+            value: this.hostedZone.zoneName,
+            description: 'Route53 hosted zone name',
+            exportName: `HostedZoneName-${stageConfig.name}`,
+        })
+    }
 }
