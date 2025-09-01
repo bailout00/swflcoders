@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib'
 import * as route53 from 'aws-cdk-lib/aws-route53'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import type { Construct } from 'constructs'
-import { type StageConfig, ROOT_DOMAIN, PROD_ACCOUNT } from '../config'
+import { type StageConfig, ROOT_DOMAIN, ROOT_HOSTED_ZONE_ID, PROD_ACCOUNT } from '../config'
 
 export interface DnsStackProps extends cdk.StackProps {
     stageConfig: StageConfig
@@ -20,7 +20,7 @@ export class DnsStack extends cdk.Stack {
         if (stageConfig.isProd) {
             // Import the root hosted zone from the ZoneStack
             this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'RootHostedZone', {
-                hostedZoneId: cdk.Fn.importValue('RootHostedZoneId'),
+                hostedZoneId: ROOT_HOSTED_ZONE_ID,
                 zoneName: ROOT_DOMAIN,
             })
         } else {
@@ -45,7 +45,7 @@ export class DnsStack extends cdk.Stack {
 
             // Import the root hosted zone from the ZoneStack
             this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'RootHostedZone', {
-                hostedZoneId: cdk.Fn.importValue('RootHostedZoneId'),
+                hostedZoneId: ROOT_HOSTED_ZONE_ID,
                 zoneName: ROOT_DOMAIN,
             })
 

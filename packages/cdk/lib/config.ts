@@ -14,6 +14,7 @@ export interface StageConfig {
 
 // Root domain configuration
 const ROOT_DOMAIN = 'swflcoders.jknott.dev'
+const ROOT_HOSTED_ZONE_ID = 'Z0799725352I5MGRMF90L'
 const PIPELINE_ACCOUNT = '716448722050' // CodePipeline account
 const BETA_ACCOUNT = '923880387537'
 const GAMMA_ACCOUNT = '898683284338' // Separate account for gamma/staging
@@ -94,4 +95,11 @@ export const pipelineConfig: PipelineConfig = {
     },
 }
 
-export { ROOT_DOMAIN, PIPELINE_ACCOUNT, BETA_ACCOUNT, GAMMA_ACCOUNT, PROD_ACCOUNT }
+export {
+    ROOT_DOMAIN,
+    ROOT_HOSTED_ZONE_ID,
+    PIPELINE_ACCOUNT,
+    BETA_ACCOUNT,
+    GAMMA_ACCOUNT,
+    PROD_ACCOUNT,
+}

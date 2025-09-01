@@ -10,7 +10,7 @@ import { DbStack } from './db-stack'
 
 export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     // DNS stack should be deployed first as it's referenced by other stacks
-    const dnsStack = new DnsStack(scope, `dns-${stageConfig.name}`, {
+    const dnsStack = new DnsStack(scope, `dns`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -19,7 +19,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     })
 
     // Bucket stack should be deployed second as it's referenced by other stacks
-    const bucketStack = new BucketStack(scope, `bucket-${stageConfig.name}`, {
+    const bucketStack = new BucketStack(scope, `bucket`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -28,7 +28,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     })
 
     // Database stack should be deployed before API stack
-    const dbStack = new DbStack(scope, `db-${stageConfig.name}`, {
+    const dbStack = new DbStack(scope, `db`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -36,7 +36,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
         stageConfig,
     })
 
-    new ApiStack(scope, `api-${stageConfig.name}`, {
+    new ApiStack(scope, `api`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -45,7 +45,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
         dbStack,
     })
 
-    new CloudwatchDashboardStack(scope, `monitoring-${stageConfig.name}`, {
+    new CloudwatchDashboardStack(scope, `monitoring`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -54,7 +54,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     })
 
     // Website stack depends on bucket stack and DNS stack
-    new WebsiteStack(scope, `web-${stageConfig.name}`, {
+    new WebsiteStack(scope, `web`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
