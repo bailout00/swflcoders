@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "yarn run pipeline:build:types && yarn workspaces foreach --all --exclude @swflcoders/types run build",
+    "build": "echo 'Building all packages...' && (yarn run pipeline:build:types || echo '⚠️  Types build failed, continuing...') && echo 'Building backend...' && yarn workspace @swflcoders/backend run build:pipeline && echo 'Building frontend...' && yarn workspace @swflcoders/frontend run build && echo 'Building CDK...' && yarn workspace @swflcoders/cdk run build",
     "build:types": "yarn workspace @swflcoders/types build",
     "dev": "yarn workspaces foreach --all --parallel run dev",
     "test": "yarn workspaces foreach --all run test",

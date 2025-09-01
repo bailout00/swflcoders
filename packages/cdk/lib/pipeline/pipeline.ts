@@ -118,12 +118,10 @@ export class PipelineStack extends Stack {
                 AWS_DEFAULT_REGION: pipelineConfig.region,
                 YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
             },
-                    commands: [
-                        'yarn install',
-                        'yarn pipeline:build:types',
-                        'yarn pipeline:build:backend',
-                        'yarn pipeline:cdk:build',
-                    ],
+                                commands: [
+                'yarn install',
+                'yarn build',
+            ],
             primaryOutputDirectory: 'packages/cdk/cdk.out',
         });
 
