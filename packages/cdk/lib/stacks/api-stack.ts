@@ -6,6 +6,7 @@ import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import type { Construct } from 'constructs'
+import { ROOT_DOMAIN } from '../config'
 import type { StageConfig } from '../config'
 import type { DbStack } from './db-stack'
 
@@ -76,6 +77,29 @@ export class ApiStack extends cdk.Stack {
             },
         })
 
+        // Configuration Lambda for frontend (serves config.json)
+        const configLambda = new lambda.Function(this, 'ConfigFunction', {
+            runtime: lambda.Runtime.NODEJS_22_X,
+            handler: 'index.handler',
+            code: lambda.Code.fromInline(`
+        exports.handler = async (event) => {
+          return {
+            statusCode: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+              'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            },
+            body: JSON.stringify({
+              defaultRoomId: 'general',
+              version: '1.0.0'
+            }),
+          };
+        };
+      `),
+        })
+
         // API Gateway
         const api = new apigateway.RestApi(this, 'SwflcodersApi', {
             restApiName: `Swflcoders API - ${stageConfig.name}`,
@@ -88,6 +112,11 @@ export class ApiStack extends cdk.Stack {
         // Health check endpoint
         const healthResource = api.root.addResource('health')
         healthResource.addMethod('GET', new apigateway.LambdaIntegration(healthCheckLambda))
+
+        // Configuration endpoint for frontend (config.json)
+        const configResource = api.root.addResource('config.json')
+        configResource.addMethod('GET', new apigateway.LambdaIntegration(configLambda))
+        configResource.addMethod('OPTIONS', new apigateway.LambdaIntegration(configLambda))
 
         // Chat endpoints (using Rust Lambda)
         const chatResource = api.root.addResource('chat')
@@ -227,6 +256,11 @@ export class ApiStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'HealthCheckEndpoint', {
             value: `${api.url}health`,
             description: 'Health check endpoint',
+        })
+
+        new cdk.CfnOutput(this, 'ConfigEndpoint', {
+            value: `${api.url}config.json`,
+            description: 'Configuration endpoint for frontend',
         })
 
         new cdk.CfnOutput(this, 'Stage', {

@@ -1,6 +1,7 @@
 import * as cdk from 'aws-cdk-lib'
 import * as route53 from 'aws-cdk-lib/aws-route53'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import 'aws-cdk-lib/aws-route53'
 import type { Construct } from 'constructs'
 import { type StageConfig, ROOT_DOMAIN, ROOT_HOSTED_ZONE_ID, PROD_ACCOUNT } from '../config'
 
@@ -24,34 +25,20 @@ export class DnsStack extends cdk.Stack {
                 zoneName: ROOT_DOMAIN,
             })
         } else {
-            // For beta/gamma, we'll create subdomain records in the root hosted zone
-            // Assume the cross-account DNS role to access the root hosted zone
-            const dnsRoleArn = `arn:aws:iam::${PROD_ACCOUNT}:role/DnsManagementRole-${stageConfig.account}`
-
-            // Create a role to assume the cross-account DNS role
-            const dnsAccessRole = new iam.Role(this, 'DnsAccessRole', {
-                assumedBy: new iam.ServicePrincipal('lambda.amazonaws.com'), // Or ec2.amazonaws.com based on your needs
-                description: 'Role to access DNS management in production account',
+            // For beta/gamma, create a separate hosted zone for the subdomain
+            this.hostedZone = new route53.HostedZone(this, 'SubdomainHostedZone', {
+                zoneName: stageConfig.domain,
             })
 
-            // Add policy to assume the cross-account DNS role
-            dnsAccessRole.addToPolicy(
-                new iam.PolicyStatement({
-                    effect: iam.Effect.ALLOW,
-                    actions: ['sts:AssumeRole'],
-                    resources: [dnsRoleArn],
-                })
-            )
+            // Delegate subdomain to this hosted zone in the root account using built-in CDK construct
+            const delegationRoleArn = `arn:aws:iam::${PROD_ACCOUNT}:role/DnsManagementRole-${stageConfig.account}`
+            const delegationRole = iam.Role.fromRoleArn(this, 'DelegationRole', delegationRoleArn)
 
-            // Import the root hosted zone from the ZoneStack
-            this.hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'RootHostedZone', {
-                hostedZoneId: ROOT_HOSTED_ZONE_ID,
-                zoneName: ROOT_DOMAIN,
+            new route53.CrossAccountZoneDelegationRecord(this, 'SubdomainDelegation', {
+                delegatedZone: this.hostedZone,
+                parentHostedZoneId: ROOT_HOSTED_ZONE_ID,
+                delegationRole,
             })
-
-            // For non-prod environments, we don't create a separate hosted zone
-            // Instead, we'll create records in the root hosted zone when needed
-            // The actual record creation happens in other stacks (like WebsiteStack)
         }
 
         // === Outputs ===

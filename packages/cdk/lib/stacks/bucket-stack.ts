@@ -23,12 +23,18 @@ export class BucketStack extends cdk.Stack {
         // === S3 Buckets ===
 
         // Logs bucket for storing access logs
+        const logsBucketName = isProd
+            ? `swflcoders-logs-${stageConfig.name}`
+            : `swflcoders-logs-${stageConfig.name}-cf` // force replacement to enable ACLs in non-prod
         this.logsBucket = new s3.Bucket(this, 'LogsBucket', {
-            bucketName: `swflcoders-logs-${stageConfig.name}`,
+            bucketName: logsBucketName,
             removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
             autoDeleteObjects: !isProd,
             encryption: s3.BucketEncryption.S3_MANAGED,
             blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+            // CloudFront standard logging requires ACLs; enable ACLs and grant log delivery group
+            objectOwnership: s3.ObjectOwnership.OBJECT_WRITER,
+            accessControl: s3.BucketAccessControl.LOG_DELIVERY_WRITE,
             versioned: true,
             lifecycleRules: [
                 {
