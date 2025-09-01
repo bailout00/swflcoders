@@ -95,6 +95,13 @@ export const pipelineConfig: PipelineConfig = {
     },
 }
 
+// DynamoDB Table Names
+export const DYNAMODB_TABLES = {
+    CHAT_ROOMS: 'chat-rooms',
+    CHAT_MESSAGES: 'chat-messages',
+    CHAT_CONNECTIONS: 'chat-connections',
+} as const
+
 export {
     ROOT_DOMAIN,
     ROOT_HOSTED_ZONE_ID,

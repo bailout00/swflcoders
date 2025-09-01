@@ -2,29 +2,57 @@ import * as cdk from 'aws-cdk-lib'
 import * as apigateway from 'aws-cdk-lib/aws-apigateway'
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2'
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations'
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import * as iam from 'aws-cdk-lib/aws-iam'
+import * as route53 from 'aws-cdk-lib/aws-route53'
+import * as route53targets from 'aws-cdk-lib/aws-route53-targets'
+import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager'
 import type { Construct } from 'constructs'
-import { ROOT_DOMAIN } from '../config'
-import type { StageConfig } from '../config'
-import type { DbStack } from './db-stack'
+import { DYNAMODB_TABLES, type StageConfig } from '../config'
 
 export interface SwflcodersStackProps extends cdk.StackProps {
     stageConfig: StageConfig
-    dbStack: DbStack
+    hostedZone: route53.IHostedZone
 }
 
 export class ApiStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: SwflcodersStackProps) {
         super(scope, id, props)
 
-        const { stageConfig, dbStack } = props
+        const { stageConfig, hostedZone } = props
 
-        // Get tables from DbStack
-        const chatRoomsTable = dbStack.chatRoomsTable
-        const chatMessagesTable = dbStack.chatMessagesTable
-        const chatConnectionsTable = dbStack.chatConnectionsTable
+        // Reference DynamoDB tables by name (created by DbStack)
+        const chatRoomsTable = dynamodb.Table.fromTableName(
+            this,
+            'ChatRoomsTable',
+            DYNAMODB_TABLES.CHAT_ROOMS
+        )
+        const chatMessagesTable = dynamodb.Table.fromTableAttributes(this, 'ChatMessagesTable', {
+            tableName: DYNAMODB_TABLES.CHAT_MESSAGES,
+            // Specify that this table has streams enabled
+            tableStreamArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/${DYNAMODB_TABLES.CHAT_MESSAGES}/stream/*`,
+        })
+        const chatConnectionsTable = dynamodb.Table.fromTableName(
+            this,
+            'ChatConnectionsTable',
+            DYNAMODB_TABLES.CHAT_CONNECTIONS
+        )
+
+        // === DNS/Certificates for Custom Domains ===
+        // Use the hosted zone provided by DNS stack
+
+        // Desired custom domains
+        const restCustomDomain = `api.${stageConfig.domain}`
+        const wsCustomDomain = `ws.${stageConfig.domain}`
+
+        // Single ACM certificate for both REST and WebSocket custom domains (SANs)
+        const apiWsCertificate = new certificatemanager.Certificate(this, 'ApiWsCertificate', {
+            domainName: restCustomDomain,
+            subjectAlternativeNames: [wsCustomDomain],
+            validation: certificatemanager.CertificateValidation.fromDns(hostedZone),
+        })
 
         // === Lambda Functions ===
 
@@ -77,46 +105,24 @@ export class ApiStack extends cdk.Stack {
             },
         })
 
-        // Configuration Lambda for frontend (serves config.json)
-        const configLambda = new lambda.Function(this, 'ConfigFunction', {
-            runtime: lambda.Runtime.NODEJS_22_X,
-            handler: 'index.handler',
-            code: lambda.Code.fromInline(`
-        exports.handler = async (event) => {
-          return {
-            statusCode: 200,
-            headers: {
-              'Content-Type': 'application/json',
-              'Access-Control-Allow-Origin': '*',
-              'Access-Control-Allow-Headers': 'Content-Type',
-              'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            },
-            body: JSON.stringify({
-              defaultRoomId: 'general',
-              version: '1.0.0'
-            }),
-          };
-        };
-      `),
-        })
-
-        // API Gateway
+        // API Gateway (REST) with custom domain
         const api = new apigateway.RestApi(this, 'SwflcodersApi', {
             restApiName: `Swflcoders API - ${stageConfig.name}`,
             description: `API for Swflcoders ${stageConfig.name} environment`,
             deployOptions: {
                 stageName: stageConfig.apiGatewayStage,
             },
+            domainName: {
+                domainName: restCustomDomain,
+                certificate: apiWsCertificate,
+                endpointType: apigateway.EndpointType.REGIONAL,
+                securityPolicy: apigateway.SecurityPolicy.TLS_1_2,
+            },
         })
 
         // Health check endpoint
         const healthResource = api.root.addResource('health')
         healthResource.addMethod('GET', new apigateway.LambdaIntegration(healthCheckLambda))
-
-        // Configuration endpoint for frontend (config.json)
-        const configResource = api.root.addResource('config.json')
-        configResource.addMethod('GET', new apigateway.LambdaIntegration(configLambda))
-        configResource.addMethod('OPTIONS', new apigateway.LambdaIntegration(configLambda))
 
         // Chat endpoints (using Rust Lambda)
         const chatResource = api.root.addResource('chat')
@@ -219,6 +225,19 @@ export class ApiStack extends cdk.Stack {
             autoDeploy: true,
         })
 
+        // Custom domain for WebSocket API (API Gateway v2)
+        const wsDomainName = new apigatewayv2.DomainName(this, 'WebSocketCustomDomainName', {
+            domainName: wsCustomDomain,
+            certificate: apiWsCertificate,
+        })
+
+        // Map the custom domain to the WebSocket API stage
+        new apigatewayv2.ApiMapping(this, 'WebSocketApiMapping', {
+            api: wsApi,
+            domainName: wsDomainName,
+            stage: wsStage,
+        })
+
         // Update broadcast function with WebSocket API details
         broadcastFunction.addEnvironment('WS_API_ID', wsApi.apiId)
         broadcastFunction.addEnvironment('WS_STAGE', wsStage.stageName)
@@ -247,6 +266,30 @@ export class ApiStack extends cdk.Stack {
             })
         )
 
+        // === DNS Records ===
+        // REST A-record (api.<domain>) -> API Gateway custom domain
+        if (api.domainName) {
+            new route53.ARecord(this, 'RestApiAliasRecord', {
+                zone: hostedZone,
+                recordName: 'api',
+                target: route53.RecordTarget.fromAlias(
+                    new route53targets.ApiGatewayDomain(api.domainName)
+                ),
+            })
+        }
+
+        // WebSocket A-record (ws.<domain>) -> API Gateway v2 custom domain
+        new route53.ARecord(this, 'WebSocketAliasRecord', {
+            zone: hostedZone,
+            recordName: 'ws',
+            target: route53.RecordTarget.fromAlias(
+                new route53targets.ApiGatewayv2DomainProperties(
+                    wsDomainName.regionalDomainName,
+                    wsDomainName.regionalHostedZoneId
+                )
+            ),
+        })
+
         // Outputs
         new cdk.CfnOutput(this, 'ApiEndpoint', {
             value: api.url,
@@ -256,11 +299,6 @@ export class ApiStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'HealthCheckEndpoint', {
             value: `${api.url}health`,
             description: 'Health check endpoint',
-        })
-
-        new cdk.CfnOutput(this, 'ConfigEndpoint', {
-            value: `${api.url}config.json`,
-            description: 'Configuration endpoint for frontend',
         })
 
         new cdk.CfnOutput(this, 'Stage', {
@@ -277,6 +315,16 @@ export class ApiStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'WebSocketUrl', {
             value: `wss://${wsApi.apiId}.execute-api.${this.region}.amazonaws.com/${wsStage.stageName}`,
             description: 'WebSocket API URL for real-time chat',
+        })
+
+        new cdk.CfnOutput(this, 'RestCustomDomain', {
+            value: `https://${restCustomDomain}`,
+            description: 'Custom domain for REST API',
+        })
+
+        new cdk.CfnOutput(this, 'WebSocketCustomDomainOutput', {
+            value: `wss://${wsCustomDomain}/${wsStage.stageName}`,
+            description: 'Custom domain for WebSocket API',
         })
     }
 }

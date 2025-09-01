@@ -2,9 +2,9 @@
 # Development script to run the backend locally with deployed AWS resources
 
 # Set environment variables for deployed DynamoDB tables
-export CHAT_ROOMS_TABLE="chat-rooms-beta"
-export CHAT_MESSAGES_TABLE="chat-messages-beta"
-export CONNECTIONS_TABLE="chat-connections-beta"
+export CHAT_ROOMS_TABLE="chat-rooms"
+export CHAT_MESSAGES_TABLE="chat-messages"
+export CONNECTIONS_TABLE="chat-connections"
 export AWS_REGION="us-east-1"
 export AWS_PROFILE="sb-beta"
 

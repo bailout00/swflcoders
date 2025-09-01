@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as cr from 'aws-cdk-lib/custom-resources'
 import type { Construct } from 'constructs'
-import type { StageConfig } from '../config'
+import { DYNAMODB_TABLES, type StageConfig } from '../config'
 
 export interface DbStackProps extends cdk.StackProps {
     stageConfig: StageConfig
@@ -23,7 +23,7 @@ export class DbStack extends cdk.Stack {
 
         // Chat Rooms Table
         this.chatRoomsTable = new dynamodb.Table(this, 'ChatRoomsTable', {
-            tableName: `chat-rooms-${stageConfig.name}`,
+            tableName: DYNAMODB_TABLES.CHAT_ROOMS,
             partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
             removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
@@ -31,7 +31,7 @@ export class DbStack extends cdk.Stack {
 
         // Chat Messages Table (with DynamoDB Streams for real-time broadcasting)
         this.chatMessagesTable = new dynamodb.Table(this, 'ChatMessagesTable', {
-            tableName: `chat-messages-${stageConfig.name}`,
+            tableName: DYNAMODB_TABLES.CHAT_MESSAGES,
             partitionKey: { name: 'room_id', type: dynamodb.AttributeType.STRING },
             sortKey: { name: 'ts', type: dynamodb.AttributeType.NUMBER },
             stream: dynamodb.StreamViewType.NEW_IMAGE,
@@ -41,7 +41,7 @@ export class DbStack extends cdk.Stack {
 
         // Chat Connections Table (for WebSocket client management)
         this.chatConnectionsTable = new dynamodb.Table(this, 'ChatConnectionsTable', {
-            tableName: `chat-connections-${stageConfig.name}`,
+            tableName: DYNAMODB_TABLES.CHAT_CONNECTIONS,
             partitionKey: { name: 'connection_id', type: dynamodb.AttributeType.STRING },
             billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
             removalPolicy: isProd ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,

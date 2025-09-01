@@ -28,7 +28,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     })
 
     // Database stack should be deployed before API stack
-    const dbStack = new DbStack(scope, `db`, {
+    new DbStack(scope, `db`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -42,7 +42,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
             region: stageConfig.region,
         },
         stageConfig,
-        dbStack,
+        hostedZone: dnsStack.hostedZone,
     })
 
     new CloudwatchDashboardStack(scope, `monitoring`, {

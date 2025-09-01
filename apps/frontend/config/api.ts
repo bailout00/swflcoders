@@ -18,8 +18,19 @@ interface ApiConfig {
     }
 }
 
-// Environment detection
-const isDevelopment = process.env.NODE_ENV === 'development'
+// Helper to get current hostname in the browser; hard-fail if unavailable
+const getCurrentHostnameOrThrow = (): string => {
+    if (typeof window === 'undefined' || !window.location?.hostname) {
+        throw new Error('Hostname is not available at runtime. Cannot derive API endpoints.')
+    }
+    return window.location.hostname
+}
+
+const currentHostname = getCurrentHostnameOrThrow()
+const isLocalHostName =
+    /localhost/i.test(currentHostname) ||
+    currentHostname === '127.0.0.1' ||
+    currentHostname === '::1'
 
 // Development configuration (local backend)
 const developmentConfig: ApiConfig = {
@@ -36,22 +47,29 @@ const developmentConfig: ApiConfig = {
     },
 }
 
-// Production configuration (deployed backend)
-const productionConfig: ApiConfig = {
-    rest: {
-        baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || 'https://your-api.amazonaws.com',
-        endpoints: {
-            messages: '/chat/messages',
-            health: '/health',
+// Production configuration (deployed backend) derived strictly from current hostname
+const productionConfig: ApiConfig = (() => {
+    const hostname = currentHostname
+    const restBase = `https://api.${hostname}`
+    const wsUrl = `wss://ws.${hostname}`
+
+    return {
+        rest: {
+            baseUrl: restBase,
+            endpoints: {
+                messages: '/chat/messages',
+                health: '/health',
+            },
         },
-    },
-    websocket: {
-        url: process.env.NEXT_PUBLIC_WS_URL || 'wss://your-websocket-api.amazonaws.com',
-    },
-}
+        websocket: {
+            url: wsUrl,
+        },
+    }
+})()
 
 // Export the appropriate configuration based on environment
-export const apiConfig = isDevelopment ? developmentConfig : productionConfig
+// Prefer localhost URLs whenever hostname indicates local
+export const apiConfig = isLocalHostName ? developmentConfig : productionConfig
 
 // Helper functions for building full URLs
 export const getRestUrl = (endpoint: keyof typeof apiConfig.rest.endpoints): string => {
