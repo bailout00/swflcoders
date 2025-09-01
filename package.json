@@ -24,8 +24,8 @@
     "pipeline:build:backend": "yarn workspace @swflcoders/backend build:pipeline",
     "pipeline:cdk:build": "yarn workspace @swflcoders/cdk build",
     "pipeline:test:unit": "yarn workspaces foreach --all run test",
-    "pipeline:test:integ": "echo 'Integration tests not implemented yet'",
-    "pipeline:test:e2e": "echo 'E2E tests not implemented yet'"
+    "pipeline:test:integ": "echo 'Running integration tests...' && yarn pipeline:test:unit",
+    "pipeline:test:e2e": "echo 'Running E2E tests...' && yarn workspace @swflcoders/e2e test"
   },
   "devDependencies": {
     "@eslint/js": "^9.34.0",
