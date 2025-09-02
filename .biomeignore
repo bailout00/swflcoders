@@ -23,3 +23,6 @@
 
 # Rust artifacts
 **/Cargo.lock
+
+# ios files
+**/ios/**

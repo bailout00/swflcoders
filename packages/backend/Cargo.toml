@@ -23,6 +23,10 @@ path = "src/lambdas/ws_default.rs"
 name = "ws-broadcast"
 path = "src/lambdas/ws_broadcast.rs"
 
+[[bin]]
+name = "rest"
+path = "src/lambdas/rest.rs"
+
 [dependencies]
 axum = { version = "0.6", features = ["json", "ws"] }
 tokio = { version = "1.0", features = ["full"] }
@@ -46,6 +50,11 @@ lambda_runtime = "0.14"
 hyper = { version = "1.0", features = ["full"] }
 http = "1.0"
 types = { path = "../types" }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
+
+[features]
+default = []
+dev = ["dep:reqwest"]
 
 [dev-dependencies]
 http-body-util = "0.1"

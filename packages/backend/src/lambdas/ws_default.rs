@@ -23,7 +23,7 @@ struct LambdaResponse {
 
 async fn function_handler(event: LambdaEvent<WebSocketEvent>) -> Result<LambdaResponse, Error> {
     let (event, _context) = event.into_parts();
-    
+
     let connection_id = &event.request_context.connection_id;
     let body = event.body.as_deref().unwrap_or("");
 
@@ -31,16 +31,18 @@ async fn function_handler(event: LambdaEvent<WebSocketEvent>) -> Result<LambdaRe
 
     // For now, this is a no-op handler that just logs the message
     // In the future, this could handle specific message types or echo back
-    
+
     Ok(LambdaResponse { status_code: 200 })
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    // Initialize tracing
+    // Initialize tracing with JSON format for CloudWatch
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
-        .without_time()
+        .json()
+        .with_current_span(false)
+        .with_span_list(false)
         .init();
 
     run(service_fn(function_handler)).await

@@ -47,7 +47,7 @@
             "biome format --write --no-errors-on-unmatched"
         ],
         "*.rs": [
-            "cargo fmt"
+            "cargo fmt --"
         ]
     }
 }

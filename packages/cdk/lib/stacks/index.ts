@@ -27,7 +27,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
         stageConfig,
     })
 
-    // Database stack should be deployed before API stack
+    // Database stack creates tables that API stack references by name
     new DbStack(scope, `db`, {
         env: {
             account: stageConfig.account,

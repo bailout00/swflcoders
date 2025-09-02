@@ -1,5 +1,8 @@
 use axum::{
-    extract::{Path, State, Query, WebSocketUpgrade, ws::{WebSocket, Message}},
+    extract::{
+        ws::{Message, WebSocket},
+        Path, Query, State, WebSocketUpgrade,
+    },
     http::StatusCode,
     response::{IntoResponse, Json, Response},
     routing::{get, post},
@@ -7,45 +10,49 @@ use axum::{
 };
 // WebSocket support imports - will be used for message handling
 // use futures_util::{sink::SinkExt, stream::StreamExt};
-use chrono::Utc;
+
 use std::net::SocketAddr;
+#[cfg(feature = "dev")]
+use std::sync::Arc;
+#[cfg(feature = "dev")]
+use tokio::sync::{broadcast, RwLock};
 use tower_http::cors::CorsLayer;
 // use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use types::{
-    HealthCheck, HealthStatus, ChatMessage, SendMessageRequest, GetMessagesResponse,
-};
+use types::{HealthCheck, SendMessageRequest};
 // use tower::ServiceExt; // Unused for now, but will be needed for Lambda
-use aws_sdk_dynamodb::{
-    Client as DynamoDbClient,
-    types::AttributeValue,
-};
-use std::{
-    env,
-    collections::HashMap,
-    sync::LazyLock,
-};
-use uuid::Uuid;
-use serde_json::json;
+use aws_sdk_dynamodb::Client as DynamoDbClient;
 use serde::Deserialize;
+use serde_json::json;
+use std::{env, sync::LazyLock};
+#[cfg(feature = "dev")]
+use tokio::sync::mpsc;
 
-// Static constants for required environment variables - will panic at startup if not set
-static CHAT_ROOMS_TABLE: LazyLock<String> = LazyLock::new(|| {
-    env::var("CHAT_ROOMS_TABLE")
-        .expect("CHAT_ROOMS_TABLE environment variable must be set")
+use backend::handlers;
+
+// Tables configuration
+static TABLES: LazyLock<handlers::Tables> = LazyLock::new(|| handlers::Tables::from_env());
+
+#[cfg(feature = "dev")]
+static CHAT_CONNECTIONS_TABLE: LazyLock<String> = LazyLock::new(|| {
+    env::var("CONNECTIONS_TABLE").expect("CONNECTIONS_TABLE environment variable must be set")
 });
 
-static CHAT_MESSAGES_TABLE: LazyLock<String> = LazyLock::new(|| {
-    env::var("CHAT_MESSAGES_TABLE")
-        .expect("CHAT_MESSAGES_TABLE environment variable must be set")
-});
+#[cfg(feature = "dev")]
+static DEV_PUBLIC_BASE_URL: LazyLock<Option<String>> =
+    LazyLock::new(|| env::var("DEV_PUBLIC_BASE_URL").ok());
 
 #[derive(Clone)]
 struct AppState {
     ddb: DynamoDbClient,
-    rooms_table: String,
-    messages_table: String,
+    tables: handlers::Tables,
     metrics: backend::MetricsHelper,
+    // In-memory broadcast channels keyed by room id (dev only)
+    #[cfg(feature = "dev")]
+    channels: Arc<RwLock<std::collections::HashMap<String, broadcast::Sender<String>>>>,
+    // Per-connection senders for targeted push (dev only)
+    #[cfg(feature = "dev")]
+    conn_senders: Arc<RwLock<std::collections::HashMap<String, mpsc::Sender<String>>>>,
 }
 
 // Error handling for the API
@@ -61,7 +68,7 @@ impl IntoResponse for AppError {
             "error": self.message,
             "code": self.status_code.as_u16()
         });
-        
+
         (self.status_code, Json(body)).into_response()
     }
 }
@@ -82,9 +89,8 @@ async fn main() {
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                "backend=debug,tower_http=debug,axum::rejection=trace".into()
-            }),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "backend=debug,tower_http=debug,axum::rejection=trace".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -101,23 +107,25 @@ async fn main() {
         // Use AWS DynamoDB
         aws_config::load_defaults(aws_config::BehaviorVersion::latest()).await
     };
-    
+
     let ddb_client = DynamoDbClient::new(&aws_config);
-    
+
     // Use static constants for table names - will panic at startup if not set
-    let rooms_table = CHAT_ROOMS_TABLE.clone();
-    let messages_table = CHAT_MESSAGES_TABLE.clone();
-    
-    tracing::info!("Using tables: rooms={}, messages={}", rooms_table, messages_table);
-    
+    let tables = TABLES.clone();
+
+    tracing::info!("Using tables: rooms={}, messages={}", tables.rooms, tables.messages);
+
     // Initialize metrics helper
     let metrics = backend::MetricsHelper::new().await;
-    
+
     let state = AppState {
         ddb: ddb_client,
-        rooms_table,
-        messages_table,
+        tables,
         metrics,
+        #[cfg(feature = "dev")]
+        channels: Arc::new(RwLock::new(HashMap::new())),
+        #[cfg(feature = "dev")]
+        conn_senders: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Check if running in AWS Lambda
@@ -125,135 +133,38 @@ async fn main() {
         tracing::warn!("Lambda mode detected but integration temporarily disabled. Running in compatibility mode.");
         // TODO: Re-enable Lambda integration once we resolve HTTP version conflicts
     }
-    
+
     // Running locally - use axum server
     let app = create_app(state);
     let addr = SocketAddr::from(([127, 0, 0, 1], 3001));
     tracing::info!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    axum::Server::bind(&addr).serve(app.into_make_service()).await.unwrap();
 }
 
 fn create_app(state: AppState) -> Router {
-    Router::new()
+    let base = Router::new()
         .route("/health", get(health_handler))
         .route("/chat/messages", post(post_message_handler))
         .route("/chat/messages/:room_id", get(get_messages_handler))
-        .route("/ws", get(websocket_handler))
-        .with_state(state)
+        .route("/ws", get(websocket_handler));
+
+    #[cfg(feature = "dev")]
+    let base = base.route("/dev/conn/:connection_id/send", post(dev_conn_send_handler));
+
+    base.with_state(state)
         // Enable CORS for development
         .layer(CorsLayer::permissive())
-        // TODO: Re-add tracing layer after fixing HTTP version conflicts
-        // .layer(TraceLayer::new_for_http())
+    // TODO: Re-add tracing layer after fixing HTTP version conflicts
+    // .layer(TraceLayer::new_for_http())
 }
 
 async fn health_handler() -> Result<Json<HealthCheck>, StatusCode> {
-    let health_check = HealthCheck {
-        status: HealthStatus::Healthy,
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        timestamp: Utc::now(),
-    };
-
-    Ok(Json(health_check))
-}
-
-// Validation helper functions
-fn validate_username(username: &str) -> Result<String, AppError> {
-    let trimmed = username.trim();
-    if trimmed.is_empty() {
-        return Err(AppError {
-            message: "Username cannot be empty".to_string(),
-            status_code: StatusCode::BAD_REQUEST,
-        });
-    }
-    if trimmed.len() > 50 {
-        return Err(AppError {
-            message: "Username cannot be longer than 50 characters".to_string(),
-            status_code: StatusCode::BAD_REQUEST,
-        });
-    }
-    Ok(trimmed.to_string())
-}
-
-fn validate_message_text(message_text: &str) -> Result<String, AppError> {
-    let trimmed = message_text.trim();
-    if trimmed.is_empty() {
-        return Err(AppError {
-            message: "Message text cannot be empty".to_string(),
-            status_code: StatusCode::BAD_REQUEST,
-        });
-    }
-    if trimmed.len() > 500 {
-        return Err(AppError {
-            message: "Message text cannot be longer than 500 characters".to_string(),
-            status_code: StatusCode::BAD_REQUEST,
-        });
-    }
-    Ok(trimmed.to_string())
-}
-
-fn validate_room_id(room_id: &str) -> Result<String, AppError> {
-    let trimmed = room_id.trim();
-    if trimmed.is_empty() {
-        return Err(AppError {
-            message: "Room ID cannot be empty".to_string(),
-            status_code: StatusCode::BAD_REQUEST,
-        });
-    }
-    // Normalize to lowercase for consistency
-    Ok(trimmed.to_lowercase())
-}
-
-// Helper function to ensure room exists, creating it if necessary
-async fn ensure_room_exists(
-    ddb: &DynamoDbClient,
-    rooms_table: &str,
-    room_id: &str,
-) -> Result<(), AppError> {
-    let get_item_result = ddb
-        .get_item()
-        .table_name(rooms_table)
-        .key("id", AttributeValue::S(room_id.to_string()))
-        .send()
-        .await;
-
-    match get_item_result {
-        Ok(output) => {
-            if output.item.is_none() {
-                // Room doesn't exist, create it
-                let now = Utc::now();
-                let room_name = if room_id == "general" {
-                    "General".to_string()
-                } else {
-                    room_id.to_string()
-                };
-
-                let mut item = HashMap::new();
-                item.insert("id".to_string(), AttributeValue::S(room_id.to_string()));
-                item.insert("name".to_string(), AttributeValue::S(room_name));
-                item.insert("created_at_iso".to_string(), AttributeValue::S(now.to_rfc3339()));
-                item.insert("created_at_epoch".to_string(), AttributeValue::N(now.timestamp().to_string()));
-
-                ddb
-                    .put_item()
-                    .table_name(rooms_table)
-                    .set_item(Some(item))
-                    .condition_expression("attribute_not_exists(id)")
-                    .send()
-                    .await
-                    .map_err(|e| {
-                        tracing::warn!("Failed to create room {}: {:?}", room_id, e);
-                        // Even if room creation fails due to race condition, that's OK
-                        AppError::from_error(e)
-                    })?;
-
-                tracing::info!("Created new room: {}", room_id);
-            }
-            Ok(())
+    match handlers::health_handler().await {
+        Ok(health_check) => Ok(Json(health_check)),
+        Err(err) => {
+            tracing::error!("Health check failed: {}", err);
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
-        Err(e) => Err(AppError::from_error(e))
     }
 }
 
@@ -264,60 +175,17 @@ async fn post_message_handler(
 ) -> Result<impl IntoResponse, AppError> {
     tracing::info!("Received message request for room: {}", request.room_id);
 
-    // Validate input
-    let room_id = validate_room_id(&request.room_id)?;
-    let user_id = request.user_id.clone(); // Accept userId from request
-    let username = validate_username(&request.username)?;
-    let message_text = validate_message_text(&request.message_text)?;
-
-    // Ensure room exists
-    ensure_room_exists(&state.ddb, &state.rooms_table, &room_id).await?;
-
-    // Create message
-    let now = Utc::now();
-    let message_id = Uuid::new_v4().to_string();
-    let timestamp_millis = now.timestamp_millis();
-
-    let mut item = HashMap::new();
-    item.insert("id".to_string(), AttributeValue::S(message_id.clone()));
-    item.insert("room_id".to_string(), AttributeValue::S(room_id.clone()));
-    item.insert("user_id".to_string(), AttributeValue::S(user_id.clone())); // Store user_id
-    item.insert("username".to_string(), AttributeValue::S(username.clone()));
-    item.insert("message_text".to_string(), AttributeValue::S(message_text.clone()));
-    item.insert("ts".to_string(), AttributeValue::N(timestamp_millis.to_string()));
-    item.insert("created_at_iso".to_string(), AttributeValue::S(now.to_rfc3339()));
-    
-    // Store client_message_id if provided
-    if let Some(client_message_id) = &request.client_message_id {
-        item.insert("client_message_id".to_string(), AttributeValue::S(client_message_id.clone()));
+    match handlers::post_message_handler(&state.ddb, &state.tables, request).await {
+        Ok(message) => {
+            // Emit metrics for REST message post
+            state.metrics.emit_message_sent(&message.room_id, message.message_text.len()).await;
+            Ok((StatusCode::CREATED, Json(message)))
+        }
+        Err(err) => {
+            tracing::error!("Failed to post message: {}", err);
+            Err(AppError { message: err, status_code: StatusCode::INTERNAL_SERVER_ERROR })
+        }
     }
-
-    // Store message in DynamoDB
-    state.ddb
-        .put_item()
-        .table_name(&state.messages_table)
-        .set_item(Some(item))
-        .send()
-        .await
-        .map_err(AppError::from_error)?;
-
-    tracing::info!("Stored message {} in room {}", message_id, room_id);
-    
-    // Emit metrics for REST message post
-    state.metrics.emit_message_sent(&room_id, message_text.len()).await;
-
-    // Create response message
-    let message = ChatMessage {
-        id: message_id.clone(),
-        room_id: room_id.clone(),
-        user_id: user_id.clone(),
-        username: username.clone(),
-        message_text: message_text.clone(),
-        created_at: now,
-        client_message_id: request.client_message_id.clone(),
-    };
-
-    Ok((StatusCode::CREATED, Json(message)))
 }
 
 // GET /chat/messages/:room_id - Retrieve last 25 messages
@@ -327,58 +195,13 @@ async fn get_messages_handler(
 ) -> Result<impl IntoResponse, AppError> {
     tracing::info!("Retrieving messages for room: {}", room_id);
 
-    let room_id = validate_room_id(&room_id)?;
-
-    // Query messages from DynamoDB
-    let result = state.ddb
-        .query()
-        .table_name(&state.messages_table)
-        .key_condition_expression("room_id = :room_id")
-        .expression_attribute_values(":room_id", AttributeValue::S(room_id.clone()))
-        .scan_index_forward(true) // Oldest first
-        .limit(25)
-        .send()
-        .await
-        .map_err(AppError::from_error)?;
-
-    let messages: Vec<ChatMessage> = result.items
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|item| {
-            // Convert DynamoDB item to ChatMessage struct
-            let id = item.get("id")?.as_s().ok()?.clone();
-            let user_id = item.get("user_id")
-                .and_then(|v| v.as_s().ok())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-            let username = item.get("username")?.as_s().ok()?.clone();
-            let message_text = item.get("message_text")?.as_s().ok()?.clone();
-            let ts = item.get("ts")?.as_n().ok()?.parse::<i64>().ok()?;
-            let created_at = chrono::DateTime::from_timestamp_millis(ts)?;
-            let client_message_id = item.get("client_message_id")
-                .and_then(|v| v.as_s().ok())
-                .cloned();
-
-            Some(ChatMessage {
-                id,
-                room_id: room_id.clone(),
-                user_id,
-                username,
-                message_text,
-                created_at: created_at.with_timezone(&Utc),
-                client_message_id,
-            })
-        })
-        .collect();
-
-    tracing::info!("Retrieved {} messages for room {}", messages.len(), room_id);
-
-    let response = GetMessagesResponse {
-        room_id,
-        messages,
-    };
-
-    Ok(Json(response))
+    match handlers::get_messages_handler(&state.ddb, &state.tables, room_id).await {
+        Ok(response) => Ok(Json(response)),
+        Err(err) => {
+            tracing::error!("Failed to get messages: {}", err);
+            Err(AppError { message: err, status_code: StatusCode::INTERNAL_SERVER_ERROR })
+        }
+    }
 }
 
 // WebSocket query parameters
@@ -394,15 +217,29 @@ struct WebSocketParams {
 async fn websocket_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<WebSocketParams>,
-    State(state): State<AppState>,
+    #[cfg(feature = "dev")] State(state): State<AppState>,
 ) -> Response {
     let room_id = params.room_id.unwrap_or_else(|| "general".to_string());
     let user_id = params.user_id.unwrap_or_else(|| "dev-user".to_string());
     let username = params.username.unwrap_or_else(|| "Developer".to_string());
 
-    tracing::info!("WebSocket connection request: room={}, user={}, username={}", room_id, user_id, username);
+    tracing::info!(
+        "WebSocket connection request: room={}, user={}, username={}",
+        room_id,
+        user_id,
+        username
+    );
 
-    ws.on_upgrade(move |socket| handle_websocket(socket, room_id, user_id, username, state))
+    ws.on_upgrade(move |socket| {
+        handle_websocket(
+            socket,
+            room_id,
+            user_id,
+            username,
+            #[cfg(feature = "dev")]
+            state,
+        )
+    })
 }
 
 // WebSocket connection handler
@@ -411,36 +248,181 @@ async fn handle_websocket(
     room_id: String,
     user_id: String,
     username: String,
-    _state: AppState,
+    #[cfg(feature = "dev")] state: AppState,
 ) {
     tracing::info!("WebSocket connected: {} ({}) in room {}", username, user_id, room_id);
 
-    // For development, we'll implement a simple message system
-    // In production, this would be handled by the Lambda functions with DynamoDB streams
+    #[cfg(feature = "dev")]
+    let tx = {
+        let mut channels = state.channels.write().await;
+        if let Some(existing) = channels.get(&room_id) {
+            existing.clone()
+        } else {
+            let (tx, _rx) = broadcast::channel::<String>(100);
+            channels.insert(room_id.clone(), tx.clone());
+            tx
+        }
+    };
+
+    #[cfg(feature = "dev")]
+    let mut rx = tx.subscribe();
+
+    // For development, create a per-connection sender and store connection in DynamoDB
+    #[cfg(feature = "dev")]
+    let connection_id = Uuid::new_v4().to_string();
+    #[cfg(feature = "dev")]
+    let (conn_tx, mut conn_rx) = mpsc::channel::<String>(100);
+    #[cfg(feature = "dev")]
+    {
+        state.conn_senders.write().await.insert(connection_id.clone(), conn_tx);
+
+        // Compute public push URL (for broadcaster Lambda to call)
+        let base = DEV_PUBLIC_BASE_URL.clone();
+        let base = base.as_deref().unwrap_or("http://localhost:3001");
+        let push_url = format!("{}/dev/conn/{}/send", base.trim_end_matches('/'), connection_id);
+
+        // Write connection record to DynamoDB
+        let now = chrono::Utc::now().timestamp_millis();
+        let ttl = now / 1000 + (60 * 60 * 24);
+
+        let mut item = HashMap::new();
+        item.insert("connection_id".to_string(), AttributeValue::S(connection_id.clone()));
+        item.insert("room_id".to_string(), AttributeValue::S(room_id.clone()));
+        item.insert("user_id".to_string(), AttributeValue::S(user_id.clone()));
+        item.insert("username".to_string(), AttributeValue::S(username.clone()));
+        item.insert("connected_at".to_string(), AttributeValue::N(now.to_string()));
+        item.insert("domain".to_string(), AttributeValue::S("local".to_string()));
+        item.insert("stage".to_string(), AttributeValue::S("local".to_string()));
+        item.insert("transport".to_string(), AttributeValue::S("dev".to_string()));
+        item.insert("push_url".to_string(), AttributeValue::S(push_url));
+        item.insert("ttl".to_string(), AttributeValue::N(ttl.to_string()));
+
+        if let Err(e) = state
+            .ddb
+            .put_item()
+            .table_name(&*CHAT_CONNECTIONS_TABLE)
+            .set_item(Some(item))
+            .send()
+            .await
+        {
+            tracing::error!("Failed to write dev connection record: {:?}", e);
+        }
+    }
 
     // Handle incoming messages
-    while let Some(msg) = socket.recv().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                tracing::info!("Received WebSocket message: {}", text);
-                // In development mode, WebSocket messages are handled by REST API
-                // Real-time updates will come through DynamoDB streams in production
-            }
-            Ok(Message::Close(_)) => {
-                tracing::info!("WebSocket connection closed for user {}", username);
-                break;
-            }
-            Err(e) => {
-                tracing::error!("WebSocket error for user {}: {}", username, e);
-                break;
-            }
-            _ => {
-                // Ignore other message types (binary, ping, pong)
+    #[cfg(feature = "dev")]
+    {
+        loop {
+            tokio::select! {
+                // Outbound server -> client messages (room fan-out)
+                received = rx.recv() => {
+                    match received {
+                        Ok(payload) => {
+                            if let Err(e) = socket.send(Message::Text(payload)).await {
+                                tracing::warn!("Failed to send to {} in room {}: {}", username, room_id, e);
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            tracing::info!("Broadcast channel closed for room {}", room_id);
+                            break;
+                        }
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!("WebSocket for user {} lagged by {} messages in room {}", username, skipped, room_id);
+                        }
+                    }
+                }
+                // Targeted per-connection push
+                msg_to_send = conn_rx.recv() => {
+                    if let Some(payload) = msg_to_send {
+                        if let Err(e) = socket.send(Message::Text(payload)).await {
+                            tracing::warn!("Failed to send targeted message to {}: {}", username, e);
+                            break;
+                        }
+                    } else {
+                        // Sender dropped
+                        break;
+                    }
+                }
+                // Inbound client -> server messages (ignored in dev)
+                msg = socket.recv() => {
+                    match msg {
+                        Some(Ok(Message::Text(text))) => {
+                            tracing::info!("Received WebSocket message from {}: {}", username, text);
+                        }
+                        Some(Ok(Message::Close(_))) | None => {
+                            tracing::info!("WebSocket connection closed for user {}", username);
+                            break;
+                        }
+                        Some(Err(e)) => {
+                            tracing::error!("WebSocket error for user {}: {}", username, e);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
     }
-    
+
+    #[cfg(not(feature = "dev"))]
+    {
+        // Minimal loop: only consume client messages and close
+        while let Some(msg) = socket.recv().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    tracing::info!("Received WebSocket message from {}: {}", username, text);
+                }
+                Ok(Message::Close(_)) => {
+                    tracing::info!("WebSocket connection closed for user {}", username);
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("WebSocket error for user {}: {}", username, e);
+                    break;
+                }
+                _ => {}
+            }
+        }
+    }
+
     tracing::info!("WebSocket disconnected: {} ({}) from room {}", username, user_id, room_id);
+
+    // Cleanup dev connection mapping and DynamoDB record
+    #[cfg(feature = "dev")]
+    {
+        state.conn_senders.write().await.remove(&connection_id);
+        if let Err(e) = state
+            .ddb
+            .delete_item()
+            .table_name(&*CHAT_CONNECTIONS_TABLE)
+            .key("connection_id", AttributeValue::S(connection_id))
+            .send()
+            .await
+        {
+            tracing::warn!("Failed to delete dev connection record: {:?}", e);
+        }
+    }
+}
+
+// Dev-only: Per-connection send endpoint for broadcaster Lambda to push to a specific connection
+#[cfg(feature = "dev")]
+async fn dev_conn_send_handler(
+    State(state): State<AppState>,
+    Path(connection_id): Path<String>,
+    Json(message): Json<ChatMessage>,
+) -> Result<impl IntoResponse, AppError> {
+    let payload = serde_json::to_string(&message).map_err(AppError::from_error)?;
+
+    let maybe_sender = { state.conn_senders.read().await.get(&connection_id).cloned() };
+    if let Some(sender) = maybe_sender {
+        if let Err(_e) = sender.send(payload).await {
+            return Ok((StatusCode::GONE, Json(json!({ "status": "gone" }))));
+        }
+        Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
+    } else {
+        Ok((StatusCode::NOT_FOUND, Json(json!({ "status": "not_found" }))))
+    }
 }
 
 #[cfg(test)]
@@ -466,16 +448,12 @@ mod tests {
             messages_table: "test-messages".to_string(),
             metrics,
         };
-        
+
         let app = create_app(state);
 
         let response = app
             .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
+                Request::builder().method(Method::GET).uri("/health").body(Body::empty()).unwrap(),
             )
             .await
             .unwrap();

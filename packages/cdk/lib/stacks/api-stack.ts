@@ -23,20 +23,26 @@ export class ApiStack extends cdk.Stack {
 
         const { stageConfig, hostedZone } = props
 
-        // Reference DynamoDB tables by name (created by DbStack)
+        // Reference DynamoDB tables by name (they are created by DbStack)
         const chatRoomsTable = dynamodb.Table.fromTableName(
             this,
-            'ChatRoomsTable',
+            'ChatRoomsTableRef',
             DYNAMODB_TABLES.CHAT_ROOMS
         )
-        const chatMessagesTable = dynamodb.Table.fromTableAttributes(this, 'ChatMessagesTable', {
-            tableName: DYNAMODB_TABLES.CHAT_MESSAGES,
-            // Specify that this table has streams enabled
-            tableStreamArn: `arn:aws:dynamodb:${this.region}:${this.account}:table/${DYNAMODB_TABLES.CHAT_MESSAGES}/stream/*`,
+
+        // Chat messages table with stream enabled (needed for DynamoDB stream trigger)
+        // We need to construct the stream ARN since Table.fromTableName doesn't include stream info
+        const chatMessagesTableName = DYNAMODB_TABLES.CHAT_MESSAGES
+        const chatMessagesStreamArn = `arn:aws:dynamodb:${this.region}:${this.account}:table/${chatMessagesTableName}/stream/*`
+
+        const chatMessagesTable = dynamodb.Table.fromTableAttributes(this, 'ChatMessagesTableRef', {
+            tableName: chatMessagesTableName,
+            tableStreamArn: chatMessagesStreamArn,
         })
+
         const chatConnectionsTable = dynamodb.Table.fromTableName(
             this,
-            'ChatConnectionsTable',
+            'ChatConnectionsTableRef',
             DYNAMODB_TABLES.CHAT_CONNECTIONS
         )
 
@@ -62,7 +68,7 @@ export class ApiStack extends cdk.Stack {
             runtime: lambda.Runtime.PROVIDED_AL2023,
             memorySize: 256,
             architecture: lambda.Architecture.ARM_64,
-            code: lambda.Code.fromAsset('../backend/target/lambda/backend'),
+            code: lambda.Code.fromAsset('../backend/target/lambda/rest'),
             handler: 'bootstrap',
             environment: {
                 CHAT_ROOMS_TABLE: chatRoomsTable.tableName,
@@ -105,36 +111,58 @@ export class ApiStack extends cdk.Stack {
             },
         })
 
-        // API Gateway (REST) with custom domain
-        const api = new apigateway.RestApi(this, 'SwflcodersApi', {
-            restApiName: `Swflcoders API - ${stageConfig.name}`,
-            description: `API for Swflcoders ${stageConfig.name} environment`,
-            deployOptions: {
-                stageName: stageConfig.apiGatewayStage,
-            },
-            domainName: {
-                domainName: restCustomDomain,
-                certificate: apiWsCertificate,
-                endpointType: apigateway.EndpointType.REGIONAL,
-                securityPolicy: apigateway.SecurityPolicy.TLS_1_2,
-            },
+        // HTTP API (API Gateway v2) with custom domain
+        const httpApi = new apigatewayv2.HttpApi(this, 'HttpApi', {
+            apiName: `Swflcoders HTTP API - ${stageConfig.name}`,
+            description: `HTTP API for Swflcoders ${stageConfig.name} environment`,
+            createDefaultStage: false,
         })
 
-        // Health check endpoint
-        const healthResource = api.root.addResource('health')
-        healthResource.addMethod('GET', new apigateway.LambdaIntegration(healthCheckLambda))
+        const httpStage = new apigatewayv2.HttpStage(this, 'HttpStage', {
+            httpApi,
+            stageName: stageConfig.apiGatewayStage,
+            autoDeploy: true,
+        })
 
-        // Chat endpoints (using Rust Lambda)
-        const chatResource = api.root.addResource('chat')
-        const messagesResource = chatResource.addResource('messages')
+        // Health check route
+        const healthIntegration = new apigatewayv2Integrations.HttpLambdaIntegration(
+            'HealthIntegration',
+            healthCheckLambda
+        )
+        httpApi.addRoutes({
+            path: '/health',
+            methods: [apigatewayv2.HttpMethod.GET],
+            integration: healthIntegration,
+        })
 
-        // POST /chat/messages - Send a message
-        messagesResource.addMethod('POST', new apigateway.LambdaIntegration(rustChatFn))
+        // Chat routes (using Rust Lambda)
+        const chatIntegration = new apigatewayv2Integrations.HttpLambdaIntegration(
+            'ChatIntegration',
+            rustChatFn
+        )
+        httpApi.addRoutes({
+            path: '/chat/messages',
+            methods: [apigatewayv2.HttpMethod.POST],
+            integration: chatIntegration,
+        })
+        httpApi.addRoutes({
+            path: '/chat/messages/{room_id}',
+            methods: [apigatewayv2.HttpMethod.GET],
+            integration: chatIntegration,
+        })
 
-        // GET /chat/messages/{room_id} - Retrieve messages
-        messagesResource
-            .addResource('{room_id}')
-            .addMethod('GET', new apigateway.LambdaIntegration(rustChatFn))
+        // Custom domain for HTTP API (API Gateway v2)
+        const restDomainName = new apigatewayv2.DomainName(this, 'HttpCustomDomainName', {
+            domainName: restCustomDomain,
+            certificate: apiWsCertificate,
+        })
+
+        // Map the custom domain to the HTTP API stage
+        new apigatewayv2.ApiMapping(this, 'HttpApiMapping', {
+            api: httpApi,
+            domainName: restDomainName,
+            stage: httpStage,
+        })
 
         // === WebSocket API ===
 
@@ -242,6 +270,8 @@ export class ApiStack extends cdk.Stack {
         broadcastFunction.addEnvironment('WS_API_ID', wsApi.apiId)
         broadcastFunction.addEnvironment('WS_STAGE', wsStage.stageName)
 
+        // Note: Dev broadcaster uses per-connection push URLs; no global dev env var needed here
+
         // Grant WebSocket management permissions to broadcast function
         broadcastFunction.addToRolePolicy(
             new iam.PolicyStatement({
@@ -267,16 +297,17 @@ export class ApiStack extends cdk.Stack {
         )
 
         // === DNS Records ===
-        // REST A-record (api.<domain>) -> API Gateway custom domain
-        if (api.domainName) {
-            new route53.ARecord(this, 'RestApiAliasRecord', {
-                zone: hostedZone,
-                recordName: 'api',
-                target: route53.RecordTarget.fromAlias(
-                    new route53targets.ApiGatewayDomain(api.domainName)
-                ),
-            })
-        }
+        // REST A-record (api.<domain>) -> API Gateway v2 HTTP custom domain
+        new route53.ARecord(this, 'RestApiAliasRecord', {
+            zone: hostedZone,
+            recordName: 'api',
+            target: route53.RecordTarget.fromAlias(
+                new route53targets.ApiGatewayv2DomainProperties(
+                    restDomainName.regionalDomainName,
+                    restDomainName.regionalHostedZoneId
+                )
+            ),
+        })
 
         // WebSocket A-record (ws.<domain>) -> API Gateway v2 custom domain
         new route53.ARecord(this, 'WebSocketAliasRecord', {
@@ -292,12 +323,12 @@ export class ApiStack extends cdk.Stack {
 
         // Outputs
         new cdk.CfnOutput(this, 'ApiEndpoint', {
-            value: api.url,
-            description: 'API Gateway endpoint URL',
+            value: httpApi.apiEndpoint,
+            description: 'HTTP API endpoint URL',
         })
 
         new cdk.CfnOutput(this, 'HealthCheckEndpoint', {
-            value: `${api.url}health`,
+            value: `${httpApi.apiEndpoint}/health`,
             description: 'Health check endpoint',
         })
 
@@ -319,7 +350,7 @@ export class ApiStack extends cdk.Stack {
 
         new cdk.CfnOutput(this, 'RestCustomDomain', {
             value: `https://${restCustomDomain}`,
-            description: 'Custom domain for REST API',
+            description: 'Custom domain for HTTP API',
         })
 
         new cdk.CfnOutput(this, 'WebSocketCustomDomainOutput', {
