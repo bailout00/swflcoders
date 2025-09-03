@@ -6,9 +6,6 @@ node_modules/
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
-.pnp.*
-pnpm-lock.yaml
-pnpm-store
 
 # Build outputs
 dist/
@@ -33,7 +30,6 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-pnpm-debug.log*
 
 # Runtime data
 pids
