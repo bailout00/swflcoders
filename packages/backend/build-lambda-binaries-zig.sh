@@ -4,6 +4,7 @@
 # Works consistently on M3 Mac and AWS CodeBuild
 
 set -e
+set -o pipefail  # Exit on pipe failures too
 
 echo "🦎 Building Lambda binaries using Zig cross-compilation for ARM64..."
 echo "📍 Host: $(uname -m) $(uname -s)"
@@ -21,7 +22,12 @@ fi
 echo "🔨 Building all binaries for ARM64 Linux (musl)..."
 
 # Build all binaries for ARM64 Linux using Zig
-cargo zigbuild --release --target aarch64-unknown-linux-musl
+echo "🔨 Starting cargo zigbuild..."
+if ! cargo zigbuild --release --target aarch64-unknown-linux-musl; then
+    echo "❌ cargo zigbuild failed!"
+    exit 1
+fi
+echo "✅ cargo zigbuild completed successfully"
 
 # Extract binary names from Cargo.toml
 LAMBDA_BINARIES=$(grep -A 1 '^\[\[bin\]\]' Cargo.toml | grep '^name = ' | sed 's/name = "\(.*\)"/\1/' | tr -d '"')
@@ -30,6 +36,11 @@ echo "📋 Found Lambda binaries:"
 for binary in $LAMBDA_BINARIES; do
     echo "  - $binary"
 done
+
+if [ -z "$LAMBDA_BINARIES" ]; then
+    echo "❌ No binaries found in Cargo.toml!"
+    exit 1
+fi
 
 # Create lambda directory structure and copy binaries
 echo "📁 Creating Lambda directory structure..."
@@ -49,13 +60,14 @@ for binary in $LAMBDA_BINARIES; do
         # Copy and rename to bootstrap
         cp "$SOURCE_BINARY" "$TARGET_BOOTSTRAP"
         chmod +x "$TARGET_BOOTSTRAP"
-        
+
         # Verify the binary
         file "$TARGET_BOOTSTRAP" || echo "  (file command not available)"
         echo "  ✅ $binary -> target/lambda/$binary/bootstrap ($(stat -c%s "$TARGET_BOOTSTRAP" 2>/dev/null || stat -f%z "$TARGET_BOOTSTRAP") bytes)"
     else
         echo "  ❌ Binary not found: $SOURCE_BINARY"
         echo "     This might indicate a build failure for $binary"
+        echo "  🚨 Build failed - exiting with error code 1"
         exit 1
     fi
 done

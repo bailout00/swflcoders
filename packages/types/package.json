@@ -11,8 +11,8 @@
     "scripts": {
         "build": "cargo build && npm run generate-ts && npm run build-ts",
         "build:pipeline": "npm run build",
-        "generate-ts": "cargo test --release 2>/dev/null || cargo test --release -- --nocapture && npm run copy-bindings",
-        "copy-bindings": "mkdir -p bindings && find target -name '*.ts' -path '*/debug/build/*' -exec cp {} bindings/ \\;",
+        "generate-ts": "echo '🧪 Running cargo test to generate TypeScript bindings...' && (cargo test --release 2>/dev/null || (echo '⚠️  Silent test failed, trying with output...' && cargo test --release -- --nocapture)) && echo '📋 Copying TypeScript bindings...' && npm run copy-bindings",
+        "copy-bindings": "mkdir -p bindings && (find target -name '*.ts' -path '*/debug/build/*' -exec cp {} bindings/ \\; 2>/dev/null || echo '⚠️  No TypeScript bindings found in target directory') && ls bindings/*.ts >/dev/null 2>&1 || echo '⚠️  No binding files copied'",
         "build-ts": "tsc",
         "dev": "npm run build",
         "test": "cargo test",
