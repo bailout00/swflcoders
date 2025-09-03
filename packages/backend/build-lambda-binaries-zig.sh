@@ -51,6 +51,8 @@ for binary in $LAMBDA_BINARIES; do
     
     # Create directory for this lambda
     mkdir -p "target/lambda/$binary"
+
+    tree .
     
     # Check if binary exists
     SOURCE_BINARY="target/aarch64-unknown-linux-musl/release/$binary"
