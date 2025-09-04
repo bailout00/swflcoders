@@ -38,6 +38,7 @@ const AWS_REGION = process.env.AWS_DEFAULT_REGION || 'us-east-1'
 
 // DynamoDB table names
 const CHAT_MESSAGES_TABLE = 'chat-messages'
+// const CHAT_CONNECTIONS_TABLE = 'chat-connections'
 
 // Test user data
 const TEST_USER = {

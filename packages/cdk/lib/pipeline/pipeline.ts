@@ -1,4 +1,4 @@
-import { Stack, type StackProps, RemovalPolicy, Duration, Stage as CdkStage } from 'aws-cdk-lib'
+import { Stack, type StackProps, Stage as CdkStage } from 'aws-cdk-lib'
 import { Pipeline as CpPipeline, PipelineType } from 'aws-cdk-lib/aws-codepipeline'
 import { BuildSpec, ComputeType, LinuxArmBuildImage } from 'aws-cdk-lib/aws-codebuild'
 import {
@@ -8,7 +8,6 @@ import {
     Role,
     ServicePrincipal,
 } from 'aws-cdk-lib/aws-iam'
-import { Bucket } from 'aws-cdk-lib/aws-s3'
 import type { Construct } from 'constructs'
 import { type PipelineConfig, type StageConfig, PROD_ACCOUNT } from '../config'
 import type { CustomImageStack } from './custom-image-stack'
@@ -91,6 +90,14 @@ export class PipelineStack extends Stack {
                                 'cloudfront:*',
                                 'secretsmanager:*',
                                 'efs:*',
+                                'dynamodb:GetItem',
+                                'dynamodb:PutItem',
+                                'dynamodb:Query',
+                                'dynamodb:Scan',
+                                'dynamodb:UpdateItem',
+                                'dynamodb:DeleteItem',
+                                'execute-api:Invoke',
+                                'execute-api:ManageConnections',
                             ],
                             resources: ['*'],
                         }),
