@@ -8,8 +8,8 @@
         "apps/*"
     ],
     "scripts": {
-        "build": "yarn run pipeline:build:types && yarn workspaces foreach -Apt --exclude @swflcoders/types run build",
-        "build:manual": "echo 'Building all packages...' && yarn run pipeline:build:types && echo 'Building backend...' && yarn workspace @swflcoders/backend run build:lambda && echo 'Building frontend...' && yarn workspace @swflcoders/frontend run build && echo 'Building CDK...' && yarn workspace @swflcoders/cdk run build",
+        "build:parallel": "yarn run pipeline:build:types && yarn workspaces foreach -Apt --exclude @swflcoders/types run build",
+        "build": "echo 'Building all packages...' && yarn run pipeline:build:types && echo 'Building backend...' && yarn workspace @swflcoders/backend run build:lambda && echo 'Building frontend...' && yarn workspace @swflcoders/frontend run build && echo 'Building CDK...' && yarn workspace @swflcoders/cdk run build",
         "build:types": "yarn workspace @swflcoders/types build",
         "dev": "yarn workspaces foreach --all --parallel run dev",
         "test": "yarn workspaces foreach --all run test",
