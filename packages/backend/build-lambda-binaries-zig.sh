@@ -29,6 +29,12 @@ if ! cargo zigbuild --release --target aarch64-unknown-linux-musl; then
 fi
 echo "✅ cargo zigbuild completed successfully"
 
+# Determine Cargo target directory robustly (handles workspace root vs package-local)
+# Prefer cargo metadata when available; fallback to local target directory
+TARGET_DIR_ROOT=$(cargo metadata --format-version 1 -q 2>/dev/null | jq -r .target_directory 2>/dev/null || echo "$(pwd)/target")
+ARCH_TARGET="aarch64-unknown-linux-musl"
+echo "📂 Using Cargo target directory: $TARGET_DIR_ROOT"
+
 # Extract binary names from Cargo.toml
 LAMBDA_BINARIES=$(grep -A 1 '^\[\[bin\]\]' Cargo.toml | grep '^name = ' | sed 's/name = "\(.*\)"/\1/' | tr -d '"')
 
@@ -51,11 +57,9 @@ for binary in $LAMBDA_BINARIES; do
     
     # Create directory for this lambda
     mkdir -p "target/lambda/$binary"
-
-    tree .
     
-    # Check if binary exists
-    SOURCE_BINARY="target/aarch64-unknown-linux-musl/release/$binary"
+    # Check if binary exists (prefer cross-compiled musl target under the resolved cargo target directory)
+    SOURCE_BINARY="$TARGET_DIR_ROOT/$ARCH_TARGET/release/$binary"
     TARGET_BOOTSTRAP="target/lambda/$binary/bootstrap"
     
     if [ -f "$SOURCE_BINARY" ]; then
