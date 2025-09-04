@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import axios from 'axios'
-import { DynamoDB } from 'aws-sdk'
+import { DynamoDB, STS } from 'aws-sdk'
 import { v4 as uuidv4 } from 'uuid'
 
 // Types from the shared types package
@@ -35,6 +35,7 @@ interface Message {
 const TEST_BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001'
 const TEST_TARGET_STAGE = process.env.TEST_TARGET_STAGE || 'dev'
 const AWS_REGION = process.env.AWS_DEFAULT_REGION || 'us-east-1'
+const TEST_ASSUME_ROLE_ARN = process.env.TEST_ASSUME_ROLE_ARN
 
 // DynamoDB table names from environment variables
 const CHAT_MESSAGES_TABLE = process.env.CHAT_MESSAGES_TABLE || 'chat-messages'
@@ -48,10 +49,34 @@ const TEST_USER = {
 
 const ROOM_ID = 'general'
 
-// Initialize AWS SDK
-const dynamodb = new DynamoDB.DocumentClient({
-    region: AWS_REGION,
-})
+// Lazy-initialized DynamoDB client (assumes role if provided)
+let dynamoClientPromise: Promise<DynamoDB.DocumentClient> | null = null
+async function getDynamo(): Promise<DynamoDB.DocumentClient> {
+    if (dynamoClientPromise) return dynamoClientPromise
+    dynamoClientPromise = (async () => {
+        if (TEST_ASSUME_ROLE_ARN) {
+            const sts = new STS({ region: AWS_REGION })
+            const res = await sts
+                .assumeRole({
+                    RoleArn: TEST_ASSUME_ROLE_ARN,
+                    RoleSessionName: `integ-${Date.now()}`,
+                    DurationSeconds: 3600,
+                })
+                .promise()
+            const creds = res.Credentials!
+            return new DynamoDB.DocumentClient({
+                region: AWS_REGION,
+                credentials: {
+                    accessKeyId: creds.AccessKeyId!,
+                    secretAccessKey: creds.SecretAccessKey!,
+                    sessionToken: creds.SessionToken!,
+                },
+            })
+        }
+        return new DynamoDB.DocumentClient({ region: AWS_REGION })
+    })()
+    return dynamoClientPromise
+}
 
 async function sendMessage(messageText: string): Promise<Message> {
     const request: SendMessageRequest = {
@@ -118,6 +143,7 @@ async function verifyMessageInDynamoDB(message: Message): Promise<boolean> {
             Limit: 10,
         }
 
+        const dynamodb = await getDynamo()
         const result = await dynamodb.query(params).promise()
 
         if (!result.Items || result.Items.length === 0) {
@@ -159,6 +185,7 @@ async function deleteMessageFromDynamoDB(message: Message): Promise<void> {
             },
         }
 
+        const dynamodb = await getDynamo()
         const queryResult = await dynamodb.query(queryParams).promise()
 
         if (!queryResult.Items || queryResult.Items.length === 0) {

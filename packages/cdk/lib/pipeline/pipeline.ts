@@ -18,6 +18,7 @@ import {
     ManualApprovalStep,
 } from 'aws-cdk-lib/pipelines'
 import { registerAppStacks } from '../stacks'
+import { IntegSupportStack } from '../stacks/integ-support-stack'
 import { ZoneStack } from '../stacks/zone-stack'
 
 export interface PipelineStackProps extends StackProps {
@@ -202,13 +203,13 @@ export class PipelineStack extends Stack {
             this.pipeline.addStage(appStage)
 
             // Integration tests as a separate pipeline stage
-            const integTestStage = new CdkStage(this, `${stageConfig.name}-integ-tests-stage`)
-            // Add a dummy stack to satisfy CDK Stage requirements
-            new Stack(integTestStage, 'DummyStack', {
+            const integTestStage = new CdkStage(this, `${stageConfig.name}-integ-tests-stage`, {
                 env: { account: stageConfig.account, region: stageConfig.region },
             })
+            // Real stack to host integ test support resources (assumable role)
+            new IntegSupportStack(integTestStage, 'IntegSupport', { stageConfig })
             this.pipeline.addStage(integTestStage, {
-                pre: [
+                post: [
                     new CodeBuildStep(`${stageConfig.name}-integ-tests`, {
                         role: codeBuildRole, // Use the role with ECR permissions
                         buildEnvironment: {
@@ -225,6 +226,7 @@ export class PipelineStack extends Stack {
                             CHAT_MESSAGES_TABLE: DYNAMODB_TABLES.CHAT_MESSAGES,
                             CHAT_ROOMS_TABLE: DYNAMODB_TABLES.CHAT_ROOMS,
                             CHAT_CONNECTIONS_TABLE: DYNAMODB_TABLES.CHAT_CONNECTIONS,
+                            TEST_ASSUME_ROLE_ARN: `arn:aws:iam::${stageConfig.account}:role/IntegTestRole-${stageConfig.name}`,
                         },
                         commands: [
                             'yarn install',
