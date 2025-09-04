@@ -219,7 +219,7 @@ export class PipelineStack extends Stack {
                         },
                         env: {
                             TEST_TARGET_STAGE: stageConfig.name,
-                            TEST_BASE_URL: `https://${stageConfig.domain}`,
+                            TEST_BASE_URL: `https://api.${stageConfig.domain}`,
                             AWS_DEFAULT_REGION: pipelineConfig.region,
                             YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
                             CHAT_MESSAGES_TABLE: DYNAMODB_TABLES.CHAT_MESSAGES,
