@@ -57,18 +57,6 @@ export class PipelineStack extends Stack {
         const { pipelineConfig, stages, customImageStack } = props
         this.customImageStack = customImageStack
 
-        // Create S3 bucket for pipeline artifacts
-        this.artifactsBucket = new Bucket(this, 'PipelineArtifacts', {
-            bucketName: `swflcoders-pipeline-artifacts-${pipelineConfig.account}`,
-            removalPolicy: RemovalPolicy.DESTROY,
-            lifecycleRules: [
-                {
-                    id: 'delete-old-artifacts',
-                    expiration: Duration.days(30),
-                },
-            ],
-        })
-
         // Create CodeBuild service role
         const codeBuildRole = new Role(this, 'CodeBuildRole', {
             assumedBy: new ServicePrincipal('codebuild.amazonaws.com'),
