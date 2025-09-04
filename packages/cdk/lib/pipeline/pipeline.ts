@@ -9,7 +9,7 @@ import {
     ServicePrincipal,
 } from 'aws-cdk-lib/aws-iam'
 import type { Construct } from 'constructs'
-import { type PipelineConfig, type StageConfig, PROD_ACCOUNT } from '../config'
+import { type PipelineConfig, type StageConfig, PROD_ACCOUNT, DYNAMODB_TABLES } from '../config'
 import type { CustomImageStack } from './custom-image-stack'
 import {
     CodePipeline,
@@ -221,6 +221,9 @@ export class PipelineStack extends Stack {
                             TEST_BASE_URL: `https://${stageConfig.domain}`,
                             AWS_DEFAULT_REGION: pipelineConfig.region,
                             YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
+                            CHAT_MESSAGES_TABLE: DYNAMODB_TABLES.CHAT_MESSAGES,
+                            CHAT_ROOMS_TABLE: DYNAMODB_TABLES.CHAT_ROOMS,
+                            CHAT_CONNECTIONS_TABLE: DYNAMODB_TABLES.CHAT_CONNECTIONS,
                         },
                         commands: [
                             'yarn install',

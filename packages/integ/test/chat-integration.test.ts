@@ -36,9 +36,9 @@ const TEST_BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001'
 const TEST_TARGET_STAGE = process.env.TEST_TARGET_STAGE || 'dev'
 const AWS_REGION = process.env.AWS_DEFAULT_REGION || 'us-east-1'
 
-// DynamoDB table names
-const CHAT_MESSAGES_TABLE = 'chat-messages'
-// const CHAT_CONNECTIONS_TABLE = 'chat-connections'
+// DynamoDB table names from environment variables
+const CHAT_MESSAGES_TABLE = process.env.CHAT_MESSAGES_TABLE || 'chat-messages'
+// const CHAT_CONNECTIONS_TABLE = process.env.CHAT_CONNECTIONS_TABLE || 'chat-connections'
 
 // Test user data
 const TEST_USER = {
