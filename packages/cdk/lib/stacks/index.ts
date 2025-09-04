@@ -28,7 +28,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
     })
 
     // Database stack creates tables that API stack references by name
-    new DbStack(scope, `db`, {
+    const dbStack = new DbStack(scope, `db`, {
         env: {
             account: stageConfig.account,
             region: stageConfig.region,
@@ -43,6 +43,7 @@ export function registerAppStacks(scope: Construct, stageConfig: StageConfig) {
         },
         stageConfig,
         hostedZone: dnsStack.hostedZone,
+        dbStack,
     })
 
     new CloudwatchDashboardStack(scope, `monitoring`, {

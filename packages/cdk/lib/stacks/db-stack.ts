@@ -1,5 +1,8 @@
 import * as cdk from 'aws-cdk-lib'
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
+import * as lambda from 'aws-cdk-lib/aws-lambda'
+import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
+import * as iam from 'aws-cdk-lib/aws-iam'
 import * as cr from 'aws-cdk-lib/custom-resources'
 import type { Construct } from 'constructs'
 import { DYNAMODB_TABLES, type StageConfig } from '../config'
@@ -12,6 +15,7 @@ export class DbStack extends cdk.Stack {
     public readonly chatRoomsTable: dynamodb.Table
     public readonly chatMessagesTable: dynamodb.Table
     public readonly chatConnectionsTable: dynamodb.Table
+    public readonly broadcastFunction: lambda.Function
 
     constructor(scope: Construct, id: string, props: DbStackProps) {
         super(scope, id, props)
@@ -77,6 +81,49 @@ export class DbStack extends cdk.Stack {
                 resources: [this.chatRoomsTable.tableArn],
             }),
         })
+
+        // === Broadcast Lambda Function ===
+        // This lambda handles broadcasting new messages via WebSocket
+        this.broadcastFunction = new lambda.Function(this, 'BroadcastFunction', {
+            functionName: `ws-broadcast-${stageConfig.name}`,
+            runtime: lambda.Runtime.PROVIDED_AL2023,
+            architecture: lambda.Architecture.ARM_64,
+            handler: 'bootstrap',
+            code: lambda.Code.fromAsset('../backend/target/lambda/ws-broadcast'),
+            environment: {
+                CONNECTIONS_TABLE: DYNAMODB_TABLES.CHAT_CONNECTIONS,
+                STAGE: stageConfig.name,
+            },
+            timeout: cdk.Duration.seconds(30),
+        })
+
+        // Grant DynamoDB permissions to broadcast function
+        this.chatConnectionsTable.grantReadWriteData(this.broadcastFunction)
+
+        // Grant WebSocket management permissions to broadcast function
+        // Note: The WebSocket API ID and stage will be added when this function is used in ApiStack
+        this.broadcastFunction.addToRolePolicy(
+            new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: ['execute-api:ManageConnections'],
+                resources: [
+                    `arn:aws:execute-api:${stageConfig.region}:${stageConfig.account}:*/*/@connections/*`,
+                ],
+            })
+        )
+
+        // Add DynamoDB Stream trigger to broadcast function
+        this.broadcastFunction.addEventSource(
+            new lambdaEventSources.DynamoEventSource(this.chatMessagesTable, {
+                startingPosition: lambda.StartingPosition.LATEST,
+                batchSize: 10,
+                filters: [
+                    lambda.FilterCriteria.filter({
+                        eventName: lambda.FilterRule.isEqual('INSERT'),
+                    }),
+                ],
+            })
+        )
 
         // === Outputs ===
         new cdk.CfnOutput(this, 'ChatRoomsTableName', {

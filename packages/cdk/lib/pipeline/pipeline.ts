@@ -50,7 +50,6 @@ class ApplicationStage extends CdkStage {
 export class PipelineStack extends Stack {
     public readonly pipeline: CodePipeline
     private readonly customImageStack: CustomImageStack
-    private readonly artifactsBucket: Bucket
 
     constructor(scope: Construct, id: string, props: PipelineStackProps) {
         super(scope, id, props)
@@ -220,7 +219,7 @@ export class PipelineStack extends Stack {
                             buildImage: LinuxArmBuildImage.fromDockerRegistry(
                                 this.customImageStack.imageUri
                             ),
-                            computeType: ComputeType.LARGE,
+                            computeType: ComputeType.MEDIUM,
                         },
                         env: {
                             TEST_TARGET_STAGE: stageConfig.name,
@@ -228,7 +227,11 @@ export class PipelineStack extends Stack {
                             AWS_DEFAULT_REGION: pipelineConfig.region,
                             YARN_ENABLE_IMMUTABLE_INSTALLS: 'false',
                         },
-                        commands: ['yarn install', 'yarn pipeline:test:integ'],
+                        commands: [
+                            'yarn install',
+                            'yarn workspaces focus @swflcoders/integ --all',
+                            'yarn pipeline:test:integ',
+                        ],
                     }),
                 ],
             })
@@ -257,6 +260,7 @@ export class PipelineStack extends Stack {
                         },
                         commands: [
                             'yarn install',
+                            'yarn workspaces focus @swflcoders/e2e --all',
                             'cd packages/e2e',
                             'npx playwright install',
                             'npx playwright install-deps || true',

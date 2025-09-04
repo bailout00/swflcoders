@@ -1,50 +1,31 @@
 import * as cdk from 'aws-cdk-lib'
-import * as apigateway from 'aws-cdk-lib/aws-apigateway'
 import * as apigatewayv2 from 'aws-cdk-lib/aws-apigatewayv2'
 import * as apigatewayv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations'
-import * as dynamodb from 'aws-cdk-lib/aws-dynamodb'
 import * as lambda from 'aws-cdk-lib/aws-lambda'
-import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources'
 import * as iam from 'aws-cdk-lib/aws-iam'
 import * as route53 from 'aws-cdk-lib/aws-route53'
 import * as route53targets from 'aws-cdk-lib/aws-route53-targets'
 import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager'
 import type { Construct } from 'constructs'
-import { DYNAMODB_TABLES, type StageConfig } from '../config'
+import { DYNAMODB_TABLES, DYNAMODB_ARNS, type StageConfig } from '../config'
+import type { DbStack } from './db-stack'
 
 export interface SwflcodersStackProps extends cdk.StackProps {
     stageConfig: StageConfig
     hostedZone: route53.IHostedZone
+    dbStack: DbStack
 }
 
 export class ApiStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props: SwflcodersStackProps) {
         super(scope, id, props)
 
-        const { stageConfig, hostedZone } = props
+        const { stageConfig, hostedZone, dbStack } = props
 
-        // Reference DynamoDB tables by name (they are created by DbStack)
-        const chatRoomsTable = dynamodb.Table.fromTableName(
-            this,
-            'ChatRoomsTableRef',
-            DYNAMODB_TABLES.CHAT_ROOMS
-        )
-
-        // Chat messages table with stream enabled (needed for DynamoDB stream trigger)
-        // We need to construct the stream ARN since Table.fromTableName doesn't include stream info
-        const chatMessagesTableName = DYNAMODB_TABLES.CHAT_MESSAGES
-        const chatMessagesStreamArn = `arn:aws:dynamodb:${this.region}:${this.account}:table/${chatMessagesTableName}/stream/*`
-
-        const chatMessagesTable = dynamodb.Table.fromTableAttributes(this, 'ChatMessagesTableRef', {
-            tableName: chatMessagesTableName,
-            tableStreamArn: chatMessagesStreamArn,
-        })
-
-        const chatConnectionsTable = dynamodb.Table.fromTableName(
-            this,
-            'ChatConnectionsTableRef',
-            DYNAMODB_TABLES.CHAT_CONNECTIONS
-        )
+        // Reference DynamoDB tables by ARN constants (they are created by DbStack)
+        const chatRoomsTableArn = DYNAMODB_ARNS.CHAT_ROOMS(this.region, this.account)
+        const chatMessagesTableArn = DYNAMODB_ARNS.CHAT_MESSAGES(this.region, this.account)
+        const chatConnectionsTableArn = DYNAMODB_ARNS.CHAT_CONNECTIONS(this.region, this.account)
 
         // === DNS/Certificates for Custom Domains ===
         // Use the hosted zone provided by DNS stack
@@ -71,17 +52,29 @@ export class ApiStack extends cdk.Stack {
             code: lambda.Code.fromAsset('../backend/target/lambda/rest'),
             handler: 'bootstrap',
             environment: {
-                CHAT_ROOMS_TABLE: chatRoomsTable.tableName,
-                CHAT_MESSAGES_TABLE: chatMessagesTable.tableName,
+                CHAT_ROOMS_TABLE: DYNAMODB_TABLES.CHAT_ROOMS,
+                CHAT_MESSAGES_TABLE: DYNAMODB_TABLES.CHAT_MESSAGES,
                 STAGE: stageConfig.name,
                 DOMAIN: stageConfig.domain,
             },
             timeout: cdk.Duration.seconds(30),
         })
 
-        // Grant DynamoDB permissions to Rust Lambda
-        chatRoomsTable.grantReadWriteData(rustChatFn)
-        chatMessagesTable.grantReadWriteData(rustChatFn)
+        // Grant DynamoDB permissions to Rust Lambda using ARN constants
+        rustChatFn.addToRolePolicy(
+            new iam.PolicyStatement({
+                effect: iam.Effect.ALLOW,
+                actions: [
+                    'dynamodb:GetItem',
+                    'dynamodb:PutItem',
+                    'dynamodb:UpdateItem',
+                    'dynamodb:DeleteItem',
+                    'dynamodb:Query',
+                    'dynamodb:Scan',
+                ],
+                resources: [chatRoomsTableArn, chatMessagesTableArn],
+            })
+        )
 
         // Basic Lambda for health check (keep existing for comparison)
         const healthCheckLambda = new lambda.Function(this, 'HealthCheckFunction', {
@@ -174,7 +167,7 @@ export class ApiStack extends cdk.Stack {
             handler: 'bootstrap',
             code: lambda.Code.fromAsset('../backend/target/lambda/ws-connect'),
             environment: {
-                CONNECTIONS_TABLE: chatConnectionsTable.tableName,
+                CONNECTIONS_TABLE: DYNAMODB_TABLES.CHAT_CONNECTIONS,
                 STAGE: stageConfig.name,
             },
             timeout: cdk.Duration.seconds(10),
@@ -187,7 +180,7 @@ export class ApiStack extends cdk.Stack {
             handler: 'bootstrap',
             code: lambda.Code.fromAsset('../backend/target/lambda/ws-disconnect'),
             environment: {
-                CONNECTIONS_TABLE: chatConnectionsTable.tableName,
+                CONNECTIONS_TABLE: DYNAMODB_TABLES.CHAT_CONNECTIONS,
                 STAGE: stageConfig.name,
             },
             timeout: cdk.Duration.seconds(10),
@@ -205,23 +198,27 @@ export class ApiStack extends cdk.Stack {
             timeout: cdk.Duration.seconds(10),
         })
 
-        const broadcastFunction = new lambda.Function(this, 'BroadcastFunction', {
-            functionName: `ws-broadcast-${stageConfig.name}`,
-            runtime: lambda.Runtime.PROVIDED_AL2023,
-            architecture: lambda.Architecture.ARM_64,
-            handler: 'bootstrap',
-            code: lambda.Code.fromAsset('../backend/target/lambda/ws-broadcast'),
-            environment: {
-                CONNECTIONS_TABLE: chatConnectionsTable.tableName,
-                STAGE: stageConfig.name,
-            },
-            timeout: cdk.Duration.seconds(30),
-        })
+        // Reference broadcast function from DbStack
+        const broadcastFunction = dbStack.broadcastFunction
 
-        // Grant DynamoDB permissions
-        chatConnectionsTable.grantReadWriteData(onConnectFunction)
-        chatConnectionsTable.grantReadWriteData(onDisconnectFunction)
-        chatConnectionsTable.grantReadWriteData(broadcastFunction)
+        // Grant DynamoDB permissions using ARN constants
+        const wsFunctions = [onConnectFunction, onDisconnectFunction]
+        wsFunctions.forEach((fn) => {
+            fn.addToRolePolicy(
+                new iam.PolicyStatement({
+                    effect: iam.Effect.ALLOW,
+                    actions: [
+                        'dynamodb:GetItem',
+                        'dynamodb:PutItem',
+                        'dynamodb:UpdateItem',
+                        'dynamodb:DeleteItem',
+                        'dynamodb:Query',
+                        'dynamodb:Scan',
+                    ],
+                    resources: [chatConnectionsTableArn],
+                })
+            )
+        })
 
         // WebSocket API
         const wsApi = new apigatewayv2.WebSocketApi(this, 'WebSocketApi', {
@@ -272,26 +269,13 @@ export class ApiStack extends cdk.Stack {
 
         // Note: Dev broadcaster uses per-connection push URLs; no global dev env var needed here
 
-        // Grant WebSocket management permissions to broadcast function
+        // Update WebSocket management permissions to broadcast function with specific API details
         broadcastFunction.addToRolePolicy(
             new iam.PolicyStatement({
                 effect: iam.Effect.ALLOW,
                 actions: ['execute-api:ManageConnections'],
                 resources: [
                     `arn:aws:execute-api:${this.region}:${this.account}:${wsApi.apiId}/${wsStage.stageName}/POST/@connections/*`,
-                ],
-            })
-        )
-
-        // Add DynamoDB Stream trigger to broadcast function
-        broadcastFunction.addEventSource(
-            new lambdaEventSources.DynamoEventSource(chatMessagesTable, {
-                startingPosition: lambda.StartingPosition.LATEST,
-                batchSize: 10,
-                filters: [
-                    lambda.FilterCriteria.filter({
-                        eventName: lambda.FilterRule.isEqual('INSERT'),
-                    }),
                 ],
             })
         )

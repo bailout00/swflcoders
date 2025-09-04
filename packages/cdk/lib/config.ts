@@ -95,11 +95,23 @@ export const pipelineConfig: PipelineConfig = {
     },
 }
 
-// DynamoDB Table Names
+// DynamoDB Table Names and ARNs
 export const DYNAMODB_TABLES = {
     CHAT_ROOMS: 'chat-rooms',
     CHAT_MESSAGES: 'chat-messages',
     CHAT_CONNECTIONS: 'chat-connections',
+} as const
+
+// DynamoDB Table ARN builders (requires region and account)
+export const DYNAMODB_ARNS = {
+    CHAT_ROOMS: (region: string, account: string) =>
+        `arn:aws:dynamodb:${region}:${account}:table/${DYNAMODB_TABLES.CHAT_ROOMS}`,
+    CHAT_MESSAGES: (region: string, account: string) =>
+        `arn:aws:dynamodb:${region}:${account}:table/${DYNAMODB_TABLES.CHAT_MESSAGES}`,
+    CHAT_CONNECTIONS: (region: string, account: string) =>
+        `arn:aws:dynamodb:${region}:${account}:table/${DYNAMODB_TABLES.CHAT_CONNECTIONS}`,
+    CHAT_MESSAGES_STREAM: (region: string, account: string) =>
+        `arn:aws:dynamodb:${region}:${account}:table/${DYNAMODB_TABLES.CHAT_MESSAGES}/stream/*`,
 } as const
 
 export {
