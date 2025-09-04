@@ -8,6 +8,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
+#[cfg(feature = "dev")]
+use types::ChatMessage;
+#[cfg(feature = "dev")]
+use uuid::Uuid;
 // WebSocket support imports - will be used for message handling
 // use futures_util::{sink::SinkExt, stream::StreamExt};
 
@@ -123,9 +127,9 @@ async fn main() {
         tables,
         metrics,
         #[cfg(feature = "dev")]
-        channels: Arc::new(RwLock::new(HashMap::new())),
+        channels: Arc::new(RwLock::new(std::collections::HashMap::new())),
         #[cfg(feature = "dev")]
-        conn_senders: Arc::new(RwLock::new(HashMap::new())),
+        conn_senders: Arc::new(RwLock::new(std::collections::HashMap::new())),
     };
 
     // Check if running in AWS Lambda
@@ -274,6 +278,10 @@ async fn handle_websocket(
     let (conn_tx, mut conn_rx) = mpsc::channel::<String>(100);
     #[cfg(feature = "dev")]
     {
+        use std::collections::HashMap;
+
+        use aws_sdk_dynamodb::types::AttributeValue;
+
         state.conn_senders.write().await.insert(connection_id.clone(), conn_tx);
 
         // Compute public push URL (for broadcaster Lambda to call)
@@ -391,6 +399,7 @@ async fn handle_websocket(
     // Cleanup dev connection mapping and DynamoDB record
     #[cfg(feature = "dev")]
     {
+        use aws_sdk_dynamodb::types::AttributeValue;
         state.conn_senders.write().await.remove(&connection_id);
         if let Err(e) = state
             .ddb
@@ -432,6 +441,7 @@ mod tests {
         body::Body,
         http::{Method, Request, StatusCode},
     };
+    use backend::handlers::Tables;
     // use http_body_util::BodyExt; // Unused due to test simplification
     use tower::ServiceExt;
 
@@ -444,8 +454,10 @@ mod tests {
         let metrics = backend::MetricsHelper::new().await;
         let state = AppState {
             ddb: ddb_client,
-            rooms_table: "test-rooms".to_string(),
-            messages_table: "test-messages".to_string(),
+            tables: Tables {
+                messages: "chat-messages".to_string(),
+                rooms: "chat-rooms".to_string(),
+            },
             metrics,
         };
 
