@@ -163,6 +163,7 @@ export class PipelineStack extends Stack {
             codePipeline: underlying,
             synth: synthStep,
             dockerEnabledForSynth: false,
+            selfMutation: true,
             codeBuildDefaults: {
                 rolePolicy: [
                     new PolicyStatement({
