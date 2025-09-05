@@ -109,6 +109,20 @@ export class ApiStack extends cdk.Stack {
             apiName: `Swflcoders HTTP API - ${stageConfig.name}`,
             description: `HTTP API for Swflcoders ${stageConfig.name} environment`,
             createDefaultStage: false,
+            corsPreflight: {
+                allowOrigins: [
+                    `https://${stageConfig.domain}`,
+                    `https://www.${stageConfig.domain}`,
+                    `https://${stageConfig.name}.${stageConfig.domain}`,
+                ],
+                allowMethods: [
+                    apigatewayv2.CorsHttpMethod.GET,
+                    apigatewayv2.CorsHttpMethod.POST,
+                    apigatewayv2.CorsHttpMethod.OPTIONS,
+                ],
+                allowHeaders: ['content-type', 'authorization'],
+                allowCredentials: false,
+            },
         })
 
         const httpStage = new apigatewayv2.HttpStage(this, 'HttpStage', {

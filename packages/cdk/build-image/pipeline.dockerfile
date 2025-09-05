@@ -81,6 +81,7 @@ ENV CC_aarch64_unknown_linux_gnu=clang \
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=clang \
     RUSTFLAGS="-Clinker=clang -Clink-arg=-fuse-ld=lld"
 
+RUN npx playwright install && npx playwright install-deps
 # Removed sccache environment configuration
 
 # Set working directory

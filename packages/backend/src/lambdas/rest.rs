@@ -22,13 +22,27 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
 
     info!("Handler processing: {} {}", method, path);
 
-    // Strip stage prefix from path if present (e.g., /beta/chat/messages/general -> /chat/messages/general)
-    let clean_path = if let Some(stripped) =
-        path.strip_prefix("/").and_then(|p| p.split_once("/").map(|(_, rest)| rest))
-    {
-        format!("/{}", stripped)
-    } else {
-        path.to_string()
+    // Optionally strip stage prefix from the path ONLY if it matches STAGE env var
+    // This supports both default execute-api URLs (which include the stage) and custom domains (which do not).
+    let clean_path = {
+        let stage = std::env::var("STAGE").ok();
+        let trimmed = path.strip_prefix("/").unwrap_or(path);
+        if let Some(stage_name) = stage {
+            if let Some((first, rest)) = trimmed.split_once('/') {
+                if first == stage_name {
+                    format!("/{}", rest)
+                } else {
+                    format!("/{}", trimmed)
+                }
+            } else if trimmed == stage_name {
+                "/".to_string()
+            } else {
+                format!("/{}", trimmed)
+            }
+        } else {
+            // No stage configured; leave the path as-is
+            path.to_string()
+        }
     };
 
     info!("Cleaned path: {}", clean_path);
@@ -41,7 +55,9 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     let body = serde_json::to_string(&health_check)?;
                     Ok(Response::builder()
                         .status(200)
-                        .header("content-type", "application/json")
+                        .header("Content-Type", "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text(body))
                         .unwrap())
                 }
@@ -49,6 +65,8 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     error!("Health check failed: {}", err);
                     Ok(Response::builder()
                         .status(500)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text("Internal server error".to_string()))
                         .unwrap())
                 }
@@ -64,7 +82,9 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     let body = serde_json::to_string(&message)?;
                     Ok(Response::builder()
                         .status(201)
-                        .header("content-type", "application/json")
+                        .header("Content-Type", "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text(body))
                         .unwrap())
                 }
@@ -72,6 +92,8 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     error!("Failed to post message: {}", err);
                     Ok(Response::builder()
                         .status(500)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text("Internal server error".to_string()))
                         .unwrap())
                 }
@@ -87,7 +109,9 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     let body = serde_json::to_string(&response)?;
                     Ok(Response::builder()
                         .status(200)
-                        .header("content-type", "application/json")
+                        .header("Content-Type", "application/json")
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text(body))
                         .unwrap())
                 }
@@ -95,14 +119,31 @@ async fn handler(event: Request) -> Result<Response<Body>, Error> {
                     error!("Failed to get messages: {}", err);
                     Ok(Response::builder()
                         .status(500)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Access-Control-Allow-Headers", "*")
                         .body(Body::Text("Internal server error".to_string()))
                         .unwrap())
                 }
             }
         }
+        ("OPTIONS", _) => {
+            // CORS preflight
+            Ok(Response::builder()
+                .status(204)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+                .header("Access-Control-Allow-Headers", "content-type,authorization")
+                .body(Body::Empty)
+                .unwrap())
+        }
         _ => {
             warn!("No route matched for: {} {}", method, path);
-            Ok(Response::builder().status(404).body(Body::Empty).unwrap())
+            Ok(Response::builder()
+                .status(404)
+                .header("Access-Control-Allow-Origin", "*")
+                .header("Access-Control-Allow-Headers", "*")
+                .body(Body::Empty)
+                .unwrap())
         }
     }
 }

@@ -32,6 +32,16 @@ const isLocalHostName =
     currentHostname === '127.0.0.1' ||
     currentHostname === '::1'
 
+// Compute the root domain to align with infrastructure custom domains
+// Our APIs are deployed at api.<rootDomain> and ws.<rootDomain>
+// Example: for beta.swflcoders.jknott.dev -> rootDomain = swflcoders.jknott.dev
+const computeRootDomain = (hostname: string): string => {
+    const labels = hostname.split('.')
+    if (labels.length <= 3) return hostname
+    return labels.slice(-3).join('.')
+}
+const rootDomain = computeRootDomain(currentHostname)
+
 // Development configuration (local backend)
 const developmentConfig: ApiConfig = {
     rest: {
@@ -47,11 +57,10 @@ const developmentConfig: ApiConfig = {
     },
 }
 
-// Production configuration (deployed backend) derived strictly from current hostname
+// Production configuration (deployed backend) derived from root domain
 const productionConfig: ApiConfig = (() => {
-    const hostname = currentHostname
-    const restBase = `https://api.${hostname}`
-    const wsUrl = `wss://ws.${hostname}`
+    const restBase = `https://api.${rootDomain}`
+    const wsUrl = `wss://ws.${rootDomain}`
 
     return {
         rest: {

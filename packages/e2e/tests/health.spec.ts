@@ -3,16 +3,9 @@ import type { HealthCheck } from '@swflcoders/types'
 
 test.describe('Health Check', () => {
     test('should return healthy status from API', async ({ request }) => {
-        // Use HEALTH_URL from pipeline environment, fallback to API_URL + /health, or default
-        const healthUrl =
-            process.env.HEALTH_URL ||
-            (process.env.API_URL ? `${process.env.API_URL}health` : null) ||
-            'http://localhost:3001/health'
-
-        console.log(`Testing health endpoint: ${healthUrl}`)
-
+        // Use the Playwright baseURL so a single BASE_URL controls all endpoints
         try {
-            const response = await request.get(healthUrl, { timeout: 5000 })
+            const response = await request.get('/health', { timeout: 5000 })
 
             expect(response.status()).toBe(200)
 
@@ -27,8 +20,10 @@ test.describe('Health Check', () => {
                 expect(healthCheck.stage).toBe(process.env.STAGE)
             }
         } catch (error) {
-            console.warn(`Health check failed: ${error.message}`)
-            console.warn('Backend may not be running locally. Skipping health check test.')
+            console.warn(
+                `Health check failed: ${error instanceof Error ? error.message : String(error)}`
+            )
+            console.warn('Backend may not be running. Skipping health check test.')
             test.skip()
         }
     })
