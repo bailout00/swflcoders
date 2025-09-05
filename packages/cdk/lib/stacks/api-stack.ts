@@ -9,6 +9,7 @@ import * as certificatemanager from 'aws-cdk-lib/aws-certificatemanager'
 import type { Construct } from 'constructs'
 import { DYNAMODB_TABLES, DYNAMODB_ARNS, type StageConfig } from '../config'
 import type { DbStack } from './db-stack'
+import { CorsHttpMethod } from 'aws-cdk-lib/aws-apigatewayv2'
 
 export interface SwflcodersStackProps extends cdk.StackProps {
     stageConfig: StageConfig
@@ -114,13 +115,24 @@ export class ApiStack extends cdk.Stack {
                     `https://${stageConfig.domain}`,
                     `https://www.${stageConfig.domain}`,
                     `https://${stageConfig.name}.${stageConfig.domain}`,
+                    // Allow localhost for development
+                    'http://localhost:3000',
+                    'http://localhost:3001',
+                    'http://127.0.0.1:3000',
+                    'http://127.0.0.1:3001',
                 ],
                 allowMethods: [
                     apigatewayv2.CorsHttpMethod.GET,
                     apigatewayv2.CorsHttpMethod.POST,
                     apigatewayv2.CorsHttpMethod.OPTIONS,
                 ],
-                allowHeaders: ['content-type', 'authorization'],
+                allowHeaders: [
+                    'content-type',
+                    'authorization',
+                    'x-amz-date',
+                    'x-amz-security-token',
+                    'x-amz-user-agent',
+                ],
                 allowCredentials: false,
             },
         })

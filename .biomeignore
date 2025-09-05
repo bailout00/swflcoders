@@ -26,3 +26,5 @@
 
 # ios files
 **/ios/**
+
+apps/frontend/tamagui-web.css
