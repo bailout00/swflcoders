@@ -32,10 +32,24 @@ const isLocalHostName =
     currentHostname === '127.0.0.1' ||
     currentHostname === '::1'
 
-// Compute the env domain to align with infrastructure custom domains
-// Keep stage (e.g., beta.|gamma.) and strip only "www."
+// Keep the full environment domain (e.g., beta.swflcoders.jknott.dev), stripping only "www."
 const normalizeHostname = (hostname: string): string => hostname.replace(/^www\./i, '')
 const envDomain = normalizeHostname(currentHostname)
+
+// Development configuration (local backend)
+// const developmentConfig: ApiConfig = {
+//     rest: {
+//         baseUrl: 'http://localhost:3001',
+//         endpoints: {
+//             messages: '/chat/messages',
+//             health: '/health',
+//         },
+//     },
+//     websocket: {
+//         // WebSocket URL for local development - same server as REST API
+//         url: 'ws://localhost:3001/ws',
+//     },
+// }
 
 // Development configuration (local backend)
 const developmentConfig: ApiConfig = {
@@ -47,8 +61,7 @@ const developmentConfig: ApiConfig = {
         },
     },
     websocket: {
-        // WebSocket URL for local development - same server as REST API
-        url: 'ws://localhost:3001/ws',
+        url: 'wss://ws.beta.swflcoders.jknott.dev',
     },
 }
 

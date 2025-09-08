@@ -34,25 +34,47 @@ export interface SendMessageResponse {
 }
 
 // Helper function to convert backend ChatMessage to frontend Message
+type SnakeCaseChatMessage = {
+    id: string
+    room_id: string
+    user_id?: string
+    username: string
+    message_text: string
+    created_at: string
+    client_message_id?: string | null
+}
+
 export function chatMessageToMessage(
-    chatMessage: BackendChatMessage,
+    chatMessage: BackendChatMessage | SnakeCaseChatMessage,
     currentUserId?: string
 ): Message {
-    const isOwn = currentUserId ? chatMessage.userId === currentUserId : undefined
+    // Normalize field names from backend (can be snake_case over REST/WS)
+    const userId: string | undefined = chatMessage.userId ?? chatMessage.user_id
+    const clientMessageId: string | null =
+        chatMessage.clientMessageId ?? chatMessage.client_message_id ?? null
+    const room_id: string = chatMessage.room_id
+    const message_text: string = chatMessage.message_text
+    const created_at: string = chatMessage.created_at
+
+    const isOwn = currentUserId ? userId === currentUserId : undefined
 
     console.log('Converting backend message to frontend:', {
-        backendUserId: chatMessage.userId,
+        backendUserId: userId,
         currentUserId,
         isOwn,
         messageId: chatMessage.id,
-        hasClientMessageId: !!chatMessage.clientMessageId,
+        hasClientMessageId: !!clientMessageId,
     })
 
     return {
-        ...chatMessage,
-        text: chatMessage.message_text,
-        timestamp: new Date(chatMessage.created_at),
+        id: chatMessage.id,
+        room_id,
+        userId: userId ?? '',
+        username: chatMessage.username,
+        text: message_text,
+        timestamp: new Date(created_at),
         isOwnMessage: isOwn,
+        clientMessageId,
     }
 }
 
