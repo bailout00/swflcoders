@@ -1,0 +1,36 @@
+# Exclude build artifacts and cache from Docker context
+target/debug
+target/release
+target/*/debug
+target/*/release  
+target/**/*.rlib
+target/**/*.rmeta
+target/**/deps
+target/**/incremental
+target/.rustc_info.json
+
+# Node modules (if any)
+node_modules
+.pnpm-store
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README*.md
+docs/
+
+# Only keep lambda binaries if they exist
+!target/lambda/**

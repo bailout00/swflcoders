@@ -1,0 +1,202 @@
+import {
+    Stack, StackProps,
+    aws_codepipeline as codepipeline,
+    aws_codepipeline_actions as cpactions,
+    aws_codebuild as codebuild,
+    aws_iam as iam,
+} from 'aws-cdk-lib';
+import {Construct} from 'constructs';
+import {stages, getStageConfig, pipelineConfig} from '../config';
+
+export class PipelineStack extends Stack {
+    constructor(scope: Construct, id: string, props?: StackProps) {
+        super(scope, id, props);
+
+        const sourceOutput = new codepipeline.Artifact('Source');
+        const buildOutput = new codepipeline.Artifact('Build');
+
+        // 1) Source (GitHub via CodeStar Connection)
+        const sourceAction = new cpactions.CodeStarConnectionsSourceAction({
+            actionName: 'Source',
+            owner: pipelineConfig.github.owner,
+            repo: pipelineConfig.github.repo,
+            branch: pipelineConfig.github.branch,
+            connectionArn: pipelineConfig.github.connectionArn,
+            output: sourceOutput,
+            triggerOnPush: true,
+        });
+
+        // 2) Build project (Node.js 22 + yarn)
+        const buildProject = new codebuild.PipelineProject(this, 'BuildProject', {
+            environment: {
+                buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+                privileged: false,
+            },
+            environmentVariables: {
+                NODE_ENV: {value: 'production'},
+            },
+            cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
+            buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/build.yml'),
+        });
+
+        const buildAction = new cpactions.CodeBuildAction({
+            actionName: 'Build',
+            input: sourceOutput,
+            outputs: [buildOutput],
+            project: buildProject,
+        });
+
+        // 3) Deploy projects (privileged for Docker asset bundling)
+        const mkDeployProject = (name: string) =>
+            new codebuild.PipelineProject(this, name, {
+                environment: {
+                    buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+                    privileged: true, // required for CDK docker bundling
+                },
+                cache: codebuild.Cache.local(codebuild.LocalCacheMode.DOCKER_LAYER, codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
+                buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/deploy.yml'),
+            });
+
+        const deployBeta = mkDeployProject('DeployBeta');
+        const deployGamma = mkDeployProject('DeployGamma');
+        const deployProd = mkDeployProject('DeployProd');
+
+        // 4) E2E projects (least-privilege: only needs to read CFN outputs)
+        const mkE2eProject = (name: string) =>
+            new codebuild.PipelineProject(this, name, {
+                environment: {
+                    buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+                    privileged: false,
+                },
+                cache: codebuild.Cache.local(codebuild.LocalCacheMode.CUSTOM, codebuild.LocalCacheMode.SOURCE),
+                buildSpec: codebuild.BuildSpec.fromSourceFilename('packages/cdk/buildspecs/e2e.yml'),
+            });
+
+        const e2eBeta = mkE2eProject('E2EBeta');
+        const e2eGamma = mkE2eProject('E2EGamma');
+
+        // IAM policies
+        // Deployers need broad CDK deploy permissions (adjust to least-privilege as desired)
+        [deployBeta, deployGamma, deployProd].forEach(p => {
+            p.addToRolePolicy(new iam.PolicyStatement({
+                actions: [
+                    'cloudformation:*',
+                    'iam:PassRole', 'iam:CreateRole', 'iam:AttachRolePolicy', 'iam:PutRolePolicy', 'iam:DeleteRolePolicy', 'iam:DeleteRole', 'iam:GetRole', 'iam:TagRole',
+                    's3:*',
+                    'lambda:*',
+                    'apigateway:*',
+                    'dynamodb:*',
+                    'logs:*',
+                    'events:*',
+                    'cloudwatch:*',
+                    'route53:*',
+                    'acm:*',
+                    'ssm:GetParameter',
+                    'kms:*',
+                    'sts:AssumeRole'  // For cross-account deployment
+                ],
+                resources: ['*'],
+            }));
+        });
+
+        // E2E projects also need cross-account assume role for reading CloudFormation outputs
+        [e2eBeta, e2eGamma].forEach(p => {
+            p.addToRolePolicy(new iam.PolicyStatement({
+                actions: ['sts:AssumeRole'],
+                resources: [
+                    `arn:aws:iam::${getStageConfig('beta').account}:role/cdk-*`,
+                    `arn:aws:iam::${getStageConfig('gamma').account}:role/cdk-*`,
+                    `arn:aws:iam::${getStageConfig('prod').account}:role/cdk-*`,
+                ],
+            }));
+        });
+
+        // E2E projects need only describe stacks (and CW logs to emit test logs)
+        [e2eBeta, e2eGamma].forEach(p => {
+            p.addToRolePolicy(new iam.PolicyStatement({
+                actions: ['cloudformation:DescribeStacks', 'cloudformation:ListStacks'],
+                resources: ['*'],
+            }));
+            p.addToRolePolicy(new iam.PolicyStatement({
+                actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+                resources: ['*'],
+            }));
+        });
+
+        const pipeline = new codepipeline.Pipeline(this, 'SwflcodersPipeline', {
+            pipelineName: 'Swflcoders',
+            restartExecutionOnUpdate: true,
+        });
+
+        // Stage: Source
+        pipeline.addStage({
+            stageName: 'Source',
+            actions: [sourceAction],
+        });
+
+        // Stage: Build
+        pipeline.addStage({
+            stageName: 'Build',
+            actions: [buildAction],
+        });
+
+        // Helpers to create actions with env overrides
+        const deployAction = (name: string, project: codebuild.IProject, stage: string) => {
+            const stageConfig = getStageConfig(stage);
+            return new cpactions.CodeBuildAction({
+                actionName: name,
+                project,
+                input: buildOutput,
+                environmentVariables: {
+                    STAGE: {value: stage},
+                    STACK_NAME_PREFIX: {value: 'ApiStack'},
+                    AWS_ACCOUNT_ID: {value: stageConfig.account},
+                },
+                runOrder: 1,
+            });
+        };
+
+        const e2eAction = (name: string, project: codebuild.IProject, stage: string) => {
+            const stageConfig = getStageConfig(stage);
+            return new cpactions.CodeBuildAction({
+                actionName: name,
+                project,
+                input: buildOutput,
+                environmentVariables: {
+                    STAGE: {value: stage},
+                    STACK_NAME_PREFIX: {value: 'ApiStack'},
+                    AWS_ACCOUNT_ID: {value: stageConfig.account},
+                },
+                runOrder: 3,
+            });
+        };
+
+        // Stage: Beta (Deploy -> Manual Approval -> E2E)
+        pipeline.addStage({
+            stageName: 'Beta',
+            actions: [
+                deployAction('Deploy_Beta', deployBeta, 'beta'),
+                new cpactions.ManualApprovalAction({actionName: 'Approve_Beta', runOrder: 2}),
+                e2eAction('E2E_Beta', e2eBeta, 'beta'),
+            ],
+        });
+
+        // Stage: Gamma (Deploy -> Manual Approval -> E2E)
+        pipeline.addStage({
+            stageName: 'Gamma',
+            actions: [
+                deployAction('Deploy_Gamma', deployGamma, 'gamma'),
+                new cpactions.ManualApprovalAction({actionName: 'Approve_Gamma', runOrder: 2}),
+                e2eAction('E2E_Gamma', e2eGamma, 'gamma'),
+            ],
+        });
+
+        // Stage: Prod (Deploy only - no E2E after prod)
+        pipeline.addStage({
+            stageName: 'Prod',
+            actions: [
+                deployAction('Deploy_Prod', deployProd, 'prod'),
+            ],
+        });
+    }
+}

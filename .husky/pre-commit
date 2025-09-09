@@ -1,0 +1,4 @@
+# Format all files 
+yarn format
+# Lint only the staged files
+yarn lint-staged

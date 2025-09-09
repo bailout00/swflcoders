@@ -1,0 +1,23 @@
+[package]
+name = "types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ts-rs = { version = "9.0", features = ["serde-compat", "chrono-impl"] }
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[profile.dev]
+# Faster debug builds on stable
+incremental = true
+opt-level = 0
+codegen-units = 256
+lto = false
+debug = 1

@@ -1,0 +1,76 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "backend"
+path = "src/main.rs"
+
+[[bin]]
+name = "ws-connect"
+path = "src/lambdas/ws_connect.rs"
+
+[[bin]]
+name = "ws-disconnect"
+path = "src/lambdas/ws_disconnect.rs"
+
+[[bin]]
+name = "ws-default"
+path = "src/lambdas/ws_default.rs"
+
+[[bin]]
+name = "ws-broadcast"
+path = "src/lambdas/ws_broadcast.rs"
+
+[[bin]]
+name = "rest"
+path = "src/lambdas/rest.rs"
+
+[dependencies]
+axum = { version = "0.6", features = ["json", "ws"] }
+tokio = { version = "1.0", features = ["full"] }
+futures-util = "0.3"
+tower = "0.4"
+tower-http = { version = "0.4", features = ["cors", "trace"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+aws-config = "1.0"
+aws-sdk-cognitoidentityprovider = "1.0"
+aws-sdk-dynamodb = "1.0"
+aws-sdk-apigatewaymanagement = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde", "fast-rng"] }
+ulid = "1.1"
+aws_lambda_events = "0.15"
+lambda_http = "0.16"
+lambda_runtime = "0.14"
+hyper = { version = "1.0", features = ["full"] }
+http = "1.0"
+types = { path = "../types" }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
+
+[features]
+default = []
+dev = ["dep:reqwest"]
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.4", features = ["util"] }
+
+[profile.dev]
+# Faster debug builds on stable
+incremental = true
+opt-level = 0
+codegen-units = 256
+lto = false
+debug = 1
+
+[profile.ci]
+inherits = "release"
+incremental = true
+codegen-units = 256
+lto = false
+debug = 0

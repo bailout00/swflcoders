@@ -1,0 +1,27 @@
+{
+    "name": "@swflcoders/e2e",
+    "version": "0.1.0",
+    "private": true,
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "test": "playwright test",
+        "test:beta": "BASE_URL='https://beta.swflcoders.jknott.dev' playwright test",
+        "test:ui": "playwright test --ui",
+        "test:headed": "playwright test --headed",
+        "test:debug": "playwright test --debug",
+        "build": "echo 'No build needed for e2e tests'",
+        "dev": "yarn test:ui",
+        "clean": "rm -rf test-results/ playwright-report/ node_modules/",
+        "type-check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@swflcoders/types": "workspace:*"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.40.0",
+        "@types/node": "^22.0.0",
+        "typescript": "^5.0.0"
+    }
+}

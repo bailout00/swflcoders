@@ -1,0 +1,20 @@
+{
+    "name": "@swflcoders/backend",
+    "version": "0.1.0",
+    "private": true,
+    "engines": {
+        "node": ">=22.0.0"
+    },
+    "scripts": {
+        "build": "./build-lambda-binaries-zig.sh",
+        "build:lambda": "./build-lambda-binaries-zig.sh",
+        "build:pipeline": "./build-lambda-binaries-zig.sh",
+        "dev": "cargo run",
+        "test": "cargo test",
+        "clean": "cargo clean",
+        "type-check": "cargo check"
+    },
+    "dependencies": {
+        "@swflcoders/types": "workspace:*"
+    }
+}

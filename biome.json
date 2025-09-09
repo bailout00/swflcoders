@@ -1,0 +1,66 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.2.2/schema.json",
+    "files": {
+        "ignoreUnknown": false,
+        "includes": ["**/*.{js,jsx,ts,tsx,json,css,md}"]
+    },
+    "formatter": {
+        "enabled": true,
+        "indentStyle": "space",
+        "indentWidth": 4,
+        "lineWidth": 100
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "correctness": {
+                "noUnusedVariables": "error"
+            },
+            "suspicious": {
+                "noExplicitAny": "warn"
+            }
+        }
+    },
+    "javascript": {
+        "formatter": {
+            "quoteStyle": "single",
+            "semicolons": "asNeeded",
+            "trailingCommas": "es5"
+        }
+    },
+    "overrides": [
+        {
+            "includes": ["apps/frontend/**/*"],
+            "linter": {
+                "rules": {
+                    "style": {
+                        "noNonNullAssertion": "warn"
+                    },
+                    "correctness": {
+                        "useExhaustiveDependencies": "off"
+                    },
+                    "security": {
+                        "noDangerouslySetInnerHtml": "off"
+                    }
+                }
+            },
+            "javascript": {
+                "globals": ["console", "process", "Buffer", "window", "document", "__DEV__"]
+            }
+        }
+    ],
+    "assist": {
+        "enabled": true,
+        "actions": {
+            "source": {
+                "organizeImports": "off"
+            }
+        }
+    },
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "acknowledged-issue-numbers": [34892],
+    "hosted-zone:account=312370645428:domainName=swflcoders.jknott.dev:region=us-east-1": {
+        "Id": "/hostedzone/Z0799725352I5MGRMF90L",
+        "Name": "swflcoders.jknott.dev."
+    },
+    "hosted-zone:account=923880387537:domainName=beta.swflcoders.jknott.dev:region=us-east-1": {
+        "Id": "/hostedzone/Z08133282EOBAP2CFCMUJ",
+        "Name": "beta.swflcoders.jknott.dev."
+    }
+}
