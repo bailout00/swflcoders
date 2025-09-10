@@ -10,6 +10,8 @@ import {
 } from 'aws-cdk-lib/aws-iam'
 import type { Construct } from 'constructs'
 import { type PipelineConfig, type StageConfig, PROD_ACCOUNT, DYNAMODB_TABLES } from '../config'
+import { SlackChannelConfiguration } from 'aws-cdk-lib/aws-chatbot'
+import { NotificationRule, DetailType } from 'aws-cdk-lib/aws-codestarnotifications'
 import type { CustomImageStack } from './custom-image-stack'
 import {
     CodePipeline,
@@ -185,6 +187,44 @@ export class PipelineStack extends Stack {
                 ],
             },
         })
+
+        // Notifications: create a CodeStar Notifications rule and (optionally) target a Chatbot Slack channel
+        const notificationRule = new NotificationRule(this, 'PipelineNotificationsRule', {
+            source: underlying,
+            events: [
+                // Pipeline-level events
+                'codepipeline-pipeline-pipeline-execution-started',
+                'codepipeline-pipeline-pipeline-execution-succeeded',
+                'codepipeline-pipeline-pipeline-execution-failed',
+                'codepipeline-pipeline-pipeline-execution-canceled',
+                'codepipeline-pipeline-pipeline-execution-resumed',
+                'codepipeline-pipeline-pipeline-execution-superseded',
+                // Manual approval events
+                'codepipeline-pipeline-manual-approval-needed',
+                'codepipeline-pipeline-manual-approval-succeeded',
+                'codepipeline-pipeline-manual-approval-failed',
+                // Stage-level events
+                'codepipeline-pipeline-stage-execution-started',
+                'codepipeline-pipeline-stage-execution-succeeded',
+                'codepipeline-pipeline-stage-execution-failed',
+                'codepipeline-pipeline-stage-execution-canceled',
+                // Action-level events
+                'codepipeline-pipeline-action-execution-started',
+                'codepipeline-pipeline-action-execution-succeeded',
+                'codepipeline-pipeline-action-execution-failed',
+                'codepipeline-pipeline-action-execution-canceled',
+            ],
+            detailType: DetailType.FULL,
+        })
+
+        if (props.pipelineConfig.notifications?.slackChannelConfigurationArn) {
+            const slackChannel = SlackChannelConfiguration.fromSlackChannelConfigurationArn(
+                this,
+                'PipelineSlackChannel',
+                props.pipelineConfig.notifications.slackChannelConfigurationArn
+            )
+            notificationRule.addTarget(slackChannel)
+        }
 
         // First, deploy the ZoneStack to production (creates root hosted zone and cross-account roles)
         const zoneStage = new ZoneStage(this, 'zone')

@@ -67,6 +67,15 @@ export interface BuildSpecConfig {
     rustVersion: string
 }
 
+// Notifications configuration
+export interface NotificationsConfig {
+    // ARN of an existing AWS Chatbot Slack channel configuration to post notifications to
+    // Example: arn:aws:chatbot:us-east-1:123456789012:chat-configuration/slack-channel/my-workspace/my-channel
+    slackChannelConfigurationArn?: string
+    // Optional explicit SNS topic name for notifications
+    topicName?: string
+}
+
 // Pipeline configuration
 export interface PipelineConfig {
     account: string
@@ -78,6 +87,7 @@ export interface PipelineConfig {
         branch: string
         connectionArn: string
     }
+    notifications?: NotificationsConfig
 }
 
 export const pipelineConfig: PipelineConfig = {
@@ -92,6 +102,12 @@ export const pipelineConfig: PipelineConfig = {
         repo: 'swflcoders',
         branch: 'master',
         connectionArn: `arn:aws:codeconnections:us-east-1:${PIPELINE_ACCOUNT}:connection/0c67b716-153a-40ea-a009-6915f3cf5f7d`,
+    },
+    // Fill in the Slack channel configuration ARN after you create/configure AWS Chatbot
+    notifications: {
+        slackChannelConfigurationArn:
+            'arn:aws:chatbot::716448722050:chat-configuration/slack-channel/swfl-coders',
+        topicName: 'swflcoders-pipeline-notifications',
     },
 }
 
