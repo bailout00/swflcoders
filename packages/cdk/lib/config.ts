@@ -98,7 +98,7 @@ export const pipelineConfig: PipelineConfig = {
         rustVersion: '1.88.0',
     },
     github: {
-        owner: 'bailout00',
+        owner: 'knottjason',
         repo: 'swflcoders',
         branch: 'master',
         connectionArn: `arn:aws:codeconnections:us-east-1:${PIPELINE_ACCOUNT}:connection/0c67b716-153a-40ea-a009-6915f3cf5f7d`,
